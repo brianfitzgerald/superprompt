@@ -71,11 +71,10 @@ test_dataloader = DataLoader(
 print("Creating BERT Trainer")
 trainer = BERTTrainer(
     bert,
-    tokenizer.vocab_size,
-    tokenizer=tokenizer,
-    train_dataloader=train_dataloader,
-    test_dataloader=test_dataloader,
-    lr=args.lr,
+    tokenizer,
+    train_dataloader,
+    test_dataloader,
+    args.lr,
     betas=(args.adam_beta1, args.adam_beta2),
     weight_decay=args.adam_weight_decay,
     log_freq=args.log_freq,
