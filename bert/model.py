@@ -33,12 +33,12 @@ class PositionEmbed(nn.Module):
 
 
 class BERTEmbedding(nn.Module):
-    def __init__(self, vocab_size, embed_size=512, dropout=0.1) -> None:
+    def __init__(self, vocab_size, embed_size=512, dropout=0.1, max_len=512) -> None:
         super().__init__()
 
         self.token = nn.Embedding(vocab_size, embed_size, padding_idx=0)
         embedding_dim = self.token.embedding_dim
-        self.position = PositionEmbed(dim_model=embedding_dim)
+        self.position = PositionEmbed(dim_model=embedding_dim, max_len=max_len)
         self.dropout = nn.Dropout(p=dropout)
         self.embed_size = embed_size
 
@@ -151,7 +151,15 @@ class TransformerBlock(nn.Module):
 
 
 class BERT(nn.Module):
-    def __init__(self, vocab_size, hidden=768, n_layers=12, attn_heads=12, dropout=0.1):
+    def __init__(
+        self,
+        vocab_size,
+        hidden=768,
+        n_layers=12,
+        attn_heads=12,
+        dropout=0.1,
+        max_len=512,
+    ):
         super().__init__()
         self.hidden = hidden
         self.n_layers = n_layers
@@ -159,7 +167,7 @@ class BERT(nn.Module):
 
         self.feed_forward_hidden = hidden * 4  # 4 is hyperparameter
 
-        self.embedding = BERTEmbedding(vocab_size, hidden, dropout)
+        self.embedding = BERTEmbedding(vocab_size, hidden, dropout, max_len)
 
         self.transformer_blocks = nn.ModuleList(
             [

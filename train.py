@@ -27,6 +27,7 @@ args = Namespace(
     lr=1e-3,
     with_cuda=True,
     valid_freq=5,
+    max_len=512,
 )
 
 from datasets import load_dataset
@@ -38,7 +39,7 @@ tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
 )
 dataset = dataset.map(
     lambda x: tokenizer(
-        x["Prompt"], truncation=True, padding="max_length", max_length=512
+        x["Prompt"], truncation=True, padding="max_length", max_length=args.max_len
     ),
     batched=True,
 )
@@ -54,6 +55,7 @@ bert = BERT(
     hidden=args.hidden,
     n_layers=args.layers,
     attn_heads=args.attn_heads,
+    max_len=args.max_len,
 )
 
 
