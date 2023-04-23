@@ -5,6 +5,7 @@ import torch
 from bert.model import BERT
 from bert.trainer import BERTTrainer
 import wandb
+
 gc.collect()
 
 torch.cuda.empty_cache()
@@ -32,13 +33,18 @@ from datasets import load_dataset
 from transformers import BertTokenizer
 
 dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
-tokenizer: BertTokenizer = BertTokenizer.from_pretrained("bert-base-uncased", use_fast=True)
-dataset = dataset.map(lambda x: tokenizer(x["Prompt"], truncation=True, padding="max_length", max_length=512), batched=True)
+tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
+    "bert-base-uncased", use_fast=True
+)
+dataset = dataset.map(
+    lambda x: tokenizer(
+        x["Prompt"], truncation=True, padding="max_length", max_length=512
+    ),
+    batched=True,
+)
 dataset = dataset.with_format("torch")
 
 print(args)
-# !wandb init
-wandb.init(config=args, project="superprompt")
 
 
 print("Building BERT model")
@@ -49,6 +55,9 @@ bert = BERT(
     n_layers=args.layers,
     attn_heads=args.attn_heads,
 )
+
+
+wandb.init(config=args, project="superprompt")
 wandb.watch(bert, log_freq=args.log_freq)
 
 
@@ -63,6 +72,7 @@ print("Creating BERT Trainer")
 trainer = BERTTrainer(
     bert,
     tokenizer.vocab_size,
+    tokenizer=tokenizer,
     train_dataloader=train_dataloader,
     test_dataloader=test_dataloader,
     lr=args.lr,

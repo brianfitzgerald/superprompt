@@ -9,8 +9,9 @@ from bert.model import BERT
 import wandb
 from transformers import BertTokenizer
 
-class ScheduledOptim():
-    '''A simple wrapper class for learning rate scheduling'''
+
+class ScheduledOptim:
+    """A simple wrapper class for learning rate scheduling"""
 
     def __init__(self, optimizer, d_model, n_warmup_steps):
         self._optimizer = optimizer
@@ -28,40 +29,38 @@ class ScheduledOptim():
         self._optimizer.zero_grad()
 
     def _get_lr_scale(self):
-        return np.min([
-            np.power(self.n_current_steps, -0.5),
-            np.power(self.n_warmup_steps, -1.5) * self.n_current_steps])
+        return np.min(
+            [
+                np.power(self.n_current_steps, -0.5),
+                np.power(self.n_warmup_steps, -1.5) * self.n_current_steps,
+            ]
+        )
 
     def _update_learning_rate(self):
-        ''' Learning rate scheduling per step '''
+        """Learning rate scheduling per step"""
 
         self.n_current_steps += 1
         lr = self.init_lr * self._get_lr_scale()
 
         for param_group in self._optimizer.param_groups:
-            param_group['lr'] = lr
+            param_group["lr"] = lr
 
 
 class BERTTrainer:
-    
-    def __init__(self, bert: BERT, vocab_size: int,
-                 tokenizer: BertTokenizer,
-                train_dataloader: DataLoader, test_dataloader: DataLoader = None,
-                lr: float = 1e-4, betas=(0.9, 0.999), weight_decay: float = 0.01, warmup_steps=10000,
-                with_cuda: bool = True, cuda_devices=None, log_freq: int = 10):
-        """
-        :param bert: BERT model which you want to train
-        :param vocab_size: total word vocab size
-        :param train_dataloader: train dataset data loader
-        :param test_dataloader: test dataset data loader [can be None]
-        :param lr: learning rate of optimizer
-        :param betas: Adam optimizer betas
-        :param weight_decay: Adam optimizer weight decay param
-        :param with_cuda: traning with cuda
-        :param log_freq: logging frequency of the batch iteration
-        """
-
-        
+    def __init__(
+        self,
+        bert: BERT,
+        tokenizer: BertTokenizer,
+        train_dataloader: DataLoader,
+        test_dataloader: DataLoader = None,
+        lr: float = 1e-4,
+        betas=(0.9, 0.999),
+        weight_decay: float = 0.01,
+        warmup_steps=10000,
+        with_cuda: bool = True,
+        cuda_devices=None,
+        log_freq: int = 10,
+    ):
         # Setup cuda device for BERT training, argument -c, --cuda should be true
         cuda_condition = torch.cuda.is_available() and with_cuda
         self.device = torch.device("cuda:0" if cuda_condition else "cpu")
@@ -82,8 +81,12 @@ class BERTTrainer:
         self.test_data = test_dataloader
 
         # Setting the Adam optimizer with hyper-param
-        self.optim = Adam(self.model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
-        self.optim_schedule = ScheduledOptim(self.optim, self.model.hidden, n_warmup_steps=warmup_steps)
+        self.optim = Adam(
+            self.model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay
+        )
+        self.optim_schedule = ScheduledOptim(
+            self.optim, self.model.hidden, n_warmup_steps=warmup_steps
+        )
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
         self.criterion = nn.NLLLoss(ignore_index=0)
@@ -100,10 +103,12 @@ class BERTTrainer:
         str_code = "train" if train else "test"
 
         # Setting the tqdm progress bar
-        data_iter = tqdm.tqdm(enumerate(data_loader),
-                              desc="EP_%s:%d" % (str_code, epoch),
-                              total=len(data_loader),
-                              bar_format="{l_bar}{r_bar}")
+        data_iter = tqdm.tqdm(
+            enumerate(data_loader),
+            desc="EP_%s:%d" % (str_code, epoch),
+            total=len(data_loader),
+            bar_format="{l_bar}{r_bar}",
+        )
 
         avg_loss = 0.0
 
@@ -116,7 +121,6 @@ class BERTTrainer:
 
             # 2-2. NLLLoss of predicting masked token word
             loss = self.criterion(mask_lm_output.transpose(1, 2), input_ids)
-
 
             # next sentence prediction accuracy
             avg_loss += loss.item()
@@ -143,7 +147,9 @@ class BERTTrainer:
             if i % self.log_freq == 0:
                 wandb.log(post_fix)
                 data_iter.write(str(post_fix))
-                print("EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / len(data_iter))
+                print(
+                    "EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / len(data_iter)
+                )
 
     def save(self, epoch, file_path="output/bert_trained.model"):
         """
