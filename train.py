@@ -13,7 +13,7 @@ torch.cuda.empty_cache()
 
 args = Namespace(
     hidden=256,
-    batch_size=64,
+    batch_size=32,
     layers=8,
     attn_heads=8,
     adam_weight_decay=0.01,
@@ -27,7 +27,7 @@ args = Namespace(
     lr=1e-3,
     with_cuda=True,
     valid_freq=5,
-    max_len=512,
+    max_len=256,
 )
 
 from datasets import load_dataset
