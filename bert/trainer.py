@@ -108,7 +108,7 @@ class BERTTrainer:
         self.criterion = nn.NLLLoss(ignore_index=0)
 
         self.log_freq = log_freq
-        self.text_table = wandb.Table(columns=["epoch", "loss", "text"])
+        self.table_rows = []
 
 
     def train(self, epoch):
@@ -152,13 +152,15 @@ class BERTTrainer:
             if i % self.log_freq == 0:
                 output = torch.argmax(mask_lm_output, dim=2)
                 decoded = self.tokenizer.decode(output[0])
-                self.text_table.add_data(epoch, loss.item(), decoded)
+                print("Sample text: ", decoded)
+                self.table_rows.append([epoch, avg_loss / (i+1), decoded])
+                table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
                 post_fix = {
                     "epoch": epoch,
                     "iter": i,
                     "avg_loss": avg_loss / (i + 1),
                     "loss": loss.item(),
-                    "sample": self.text_table
+                    "sample": table
                 }
                 data_iter.write(str(post_fix))
                 wandb.log(post_fix)
