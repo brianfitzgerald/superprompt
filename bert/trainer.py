@@ -153,20 +153,21 @@ class BERTTrainer:
                 output = torch.argmax(mask_lm_output, dim=2)
                 decoded = self.tokenizer.decode(output[0])
                 print("Sample text: ", decoded)
-                self.table_rows.append([epoch, avg_loss / (i+1), decoded])
-                table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
                 post_fix = {
                     "epoch": epoch,
                     "iter": i,
                     "avg_loss": avg_loss / (i + 1),
                     "loss": loss.item(),
-                    "sample": table
                 }
                 data_iter.write(str(post_fix))
                 wandb.log(post_fix)
                 print(
                     "EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / len(data_iter)
                 )
+
+        self.table_rows.append([epoch, avg_loss / (i+1), decoded])
+        table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
+        wandb.log({"samples": table})
 
     def save(self, epoch, file_path="output/bert_trained.model"):
         """
