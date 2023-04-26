@@ -149,17 +149,17 @@ class BERTTrainer:
                 loss.backward()
                 self.optim_schedule.step_and_update_lr()
 
-            post_fix = {
-                "epoch": epoch,
-                "iter": i,
-                "avg_loss": avg_loss / (i + 1),
-                "loss": loss.item(),
-            }
-
             if i % self.log_freq == 0:
                 output = torch.argmax(mask_lm_output, dim=2)
                 decoded = self.tokenizer.decode(output[0])
                 self.text_table.add_data(epoch, loss.item(), decoded)
+                post_fix = {
+                    "epoch": epoch,
+                    "iter": i,
+                    "avg_loss": avg_loss / (i + 1),
+                    "loss": loss.item(),
+                    "sample": self.text_table
+                }
                 data_iter.write(str(post_fix))
                 wandb.log(post_fix)
                 print(
