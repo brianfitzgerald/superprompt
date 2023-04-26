@@ -127,7 +127,7 @@ class PositionwiseFeedForward(nn.Module):
         self.w_2 = nn.Linear(feed_forward_hidden, hidden)
         self.dropout = nn.Dropout(p=dropout)
         # gelu is the same as RELU with a slight dip before 0
-        self.activation = nn.GELU()
+        self.activation = nn.LeakyReLU()
 
     def forward(self, x):
         return self.w_2(self.dropout(self.activation(self.w_1(x))))

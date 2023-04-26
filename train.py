@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 import gc
 import torch
 from bert.model import BERT
-from bert.trainer import BERTTrainer
+from bert.trainer import BERTTrainer, mask_random_word
 import wandb
 from datasets import load_dataset
 from transformers import BertTokenizer
@@ -37,6 +37,7 @@ dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
+dataset = dataset.map(lambda x: mask_random_word(x, tokenizer), batched=True)
 dataset = dataset.map(
     lambda x: tokenizer(
         x["Prompt"], truncation=True, padding="max_length", max_length=args.max_len

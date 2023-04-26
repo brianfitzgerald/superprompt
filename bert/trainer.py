@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.optim import Adam
+from torch.optim import AdamW
 from torch.utils.data import DataLoader
 import numpy as np
 import tqdm
@@ -8,6 +8,22 @@ from IPython.display import display
 from bert.model import BERT
 import wandb
 from transformers import BertTokenizer
+import random
+
+def mask_random_word(batch, tokenizer: BertTokenizer):
+
+    for i, p in enumerate(batch["Prompt"]):
+
+        prompt = p.split(" ")
+
+        for i, token in enumerate(prompt):
+            prob = random.random()
+            if prob < 0.15:
+                prompt[i] = tokenizer.mask_token
+
+        batch["Prompt"][i] = " ".join(prompt)
+
+    return batch
 
 
 class ScheduledOptim:
@@ -81,7 +97,7 @@ class BERTTrainer:
         self.test_data = test_dataloader
 
         # Setting the Adam optimizer with hyper-param
-        self.optim = Adam(
+        self.optim = AdamW(
             self.model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay
         )
         self.optim_schedule = ScheduledOptim(
@@ -93,6 +109,7 @@ class BERTTrainer:
 
         self.log_freq = log_freq
         self.text_table = wandb.Table(columns=["epoch", "loss", "text"])
+
 
     def train(self, epoch):
         self.iteration(epoch, self.train_data)
