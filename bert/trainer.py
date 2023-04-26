@@ -155,6 +155,7 @@ class BERTTrainer:
                 "avg_loss": avg_loss / (i + 1),
                 "loss": loss.item(),
             }
+            wandb.log(post_fix)
 
             if i % self.log_freq == 0:
                 output = torch.argmax(mask_lm_output, dim=2)
