@@ -92,6 +92,7 @@ class BERTTrainer:
         self.criterion = nn.NLLLoss(ignore_index=0)
 
         self.log_freq = log_freq
+        self.text_table = wandb.Table(columns=["epoch", "loss", "text"])
 
     def train(self, epoch):
         self.iteration(epoch, self.train_data)
@@ -125,27 +126,23 @@ class BERTTrainer:
             # next sentence prediction accuracy
             avg_loss += loss.item()
 
-            decoded = ""
-
             # 3. backward and optimization only in train
             if train:
                 self.optim_schedule.zero_grad()
                 loss.backward()
                 self.optim_schedule.step_and_update_lr()
-            else:
-                output = torch.argmax(mask_lm_output, dim=2)
-                decoded = self.tokenizer.decode(output[0])
 
             post_fix = {
                 "epoch": epoch,
                 "iter": i,
                 "avg_loss": avg_loss / (i + 1),
                 "loss": loss.item(),
-                "decoded_sample": decoded,
             }
 
             if i % self.log_freq == 0:
-                wandb.log(post_fix)
+                output = torch.argmax(mask_lm_output, dim=2)
+                decoded = self.tokenizer.decode(output[0])
+                self.text_table.add_data(epoch, loss.item(), decoded)
                 data_iter.write(str(post_fix))
                 print(
                     "EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / len(data_iter)

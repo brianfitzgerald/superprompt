@@ -5,6 +5,8 @@ import torch
 from bert.model import BERT
 from bert.trainer import BERTTrainer
 import wandb
+from datasets import load_dataset
+from transformers import BertTokenizer
 
 gc.collect()
 
@@ -30,8 +32,6 @@ args = Namespace(
     max_len=256,
 )
 
-from datasets import load_dataset
-from transformers import BertTokenizer
 
 dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
