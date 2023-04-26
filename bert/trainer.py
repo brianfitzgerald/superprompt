@@ -155,13 +155,13 @@ class BERTTrainer:
                 "avg_loss": avg_loss / (i + 1),
                 "loss": loss.item(),
             }
-            wandb.log(post_fix)
 
             if i % self.log_freq == 0:
                 output = torch.argmax(mask_lm_output, dim=2)
                 decoded = self.tokenizer.decode(output[0])
                 self.text_table.add_data(epoch, loss.item(), decoded)
                 data_iter.write(str(post_fix))
+                wandb.log(post_fix)
                 print(
                     "EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / len(data_iter)
                 )
