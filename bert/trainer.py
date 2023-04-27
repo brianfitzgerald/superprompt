@@ -91,7 +91,7 @@ class BERTTrainer:
         )
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
-        self.criterion = nn.NLLLoss(ignore_index=0)
+        self.criterion = nn.CrossEntropyLoss(ignore_index=0)
 
         self.log_freq = log_freq
         self.table_rows = []
@@ -125,7 +125,7 @@ class BERTTrainer:
             mask_lm_output = self.model.forward(input_ids)
 
             # 2-2. NLLLoss of predicting masked token word
-            loss = self.criterion(mask_lm_output.transpose(1, 2), labels)
+            loss = self.criterion(mask_lm_output.view(-1, self.tokenizer.vocab_size), labels.view(-1))
 
             # next sentence prediction accuracy
             avg_loss += loss.item()
