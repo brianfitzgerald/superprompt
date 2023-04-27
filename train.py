@@ -6,7 +6,7 @@ from bert.model import BERT
 from bert.trainer import BERTTrainer, mask_random_word
 import wandb
 from datasets import load_dataset
-from transformers import BertTokenizer
+from transformers import BertTokenizer, DataCollatorForLanguageModeling
 
 gc.collect()
 
@@ -38,14 +38,14 @@ dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
-dataset = dataset.map(lambda x: mask_random_word(x, tokenizer), batched=True)
+collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15)
+
 dataset = dataset.map(
     lambda x: tokenizer(
-        x["Prompt"], truncation=True, padding="max_length", max_length=args.max_len
+        x["Prompt"], truncation=True, padding="max_length", max_length=args.max_len, return_tensors="pt"
     ),
     batched=True,
 )
-dataset = dataset.with_format("torch")
 
 print(args)
 
@@ -67,10 +67,10 @@ if args.use_wandb:
 
 
 train_dataloader = DataLoader(
-    dataset["train"], batch_size=args.batch_size, num_workers=args.num_workers
+    dataset["train"], batch_size=args.batch_size, num_workers=args.num_workers, collate_fn=collator
 )
 test_dataloader = DataLoader(
-    dataset["test"], batch_size=args.batch_size, num_workers=args.num_workers
+    dataset["test"], batch_size=args.batch_size, num_workers=args.num_workers, collate_fn=collator
 )
 
 print("Creating BERT Trainer")
