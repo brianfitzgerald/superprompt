@@ -10,22 +10,6 @@ import wandb
 from transformers import BertTokenizer
 import random
 
-def mask_random_word(batch, tokenizer: BertTokenizer):
-
-    for i, p in enumerate(batch["Prompt"]):
-
-        prompt = p.split(" ")
-
-        for i, token in enumerate(prompt):
-            prob = random.random()
-            if prob < 0.15:
-                prompt[i] = tokenizer.mask_token
-
-        batch["Prompt"][i] = " ".join(prompt)
-
-    return batch
-
-
 class ScheduledOptim:
     """A simple wrapper class for learning rate scheduling"""
 
@@ -87,6 +71,7 @@ class BERTTrainer:
         self.model = bert.to(self.device)
 
         self.tokenizer = tokenizer
+        self.use_wandb = use_wandb
 
         # Distributed GPU training if CUDA can detect more than 1 GPU
         if with_cuda and torch.cuda.device_count() > 1:
@@ -139,7 +124,7 @@ class BERTTrainer:
             mask_lm_output = self.model.forward(input_ids)
 
             # 2-2. NLLLoss of predicting masked token word
-            loss = self.criterion(mask_lm_output.transpose(1, 2), input_ids)
+            loss = self.criterion(mask_lm_output.transpose(1, 2), data["labels"])
 
             # next sentence prediction accuracy
             avg_loss += loss.item()

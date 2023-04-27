@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 import gc
 import torch
 from bert.model import BERT
-from bert.trainer import BERTTrainer, mask_random_word
+from bert.trainer import BERTTrainer
 import wandb
 from datasets import load_dataset
 from transformers import BertTokenizer, DataCollatorForLanguageModeling
@@ -30,7 +30,7 @@ args = Namespace(
     with_cuda=True,
     valid_freq=5,
     max_len=256,
-    use_wandb=False,
+    use_wandb=True
 )
 
 
@@ -39,13 +39,13 @@ tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
 collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15)
-
 dataset = dataset.map(
     lambda x: tokenizer(
         x["Prompt"], truncation=True, padding="max_length", max_length=args.max_len, return_tensors="pt"
     ),
     batched=True,
 )
+dataset = dataset.remove_columns(['Prompt'])
 
 print(args)
 
