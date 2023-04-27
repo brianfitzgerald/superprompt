@@ -119,12 +119,13 @@ class BERTTrainer:
         for i, data in data_iter:
             # 0. batch_data will be sent into the device(GPU or cpu)
             input_ids = data["input_ids"].to(self.device)
+            labels = data["labels"].to(self.device)
 
             # 1. forward the next_sentence_prediction and masked_lm model
             mask_lm_output = self.model.forward(input_ids)
 
             # 2-2. NLLLoss of predicting masked token word
-            loss = self.criterion(mask_lm_output.transpose(1, 2), data["labels"])
+            loss = self.criterion(mask_lm_output.transpose(1, 2), labels)
 
             # next sentence prediction accuracy
             avg_loss += loss.item()
