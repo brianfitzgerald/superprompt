@@ -7,8 +7,16 @@ import tqdm
 from IPython.display import display
 from bert.model import BERT
 import wandb
-from transformers import BertTokenizer
+from transformers import BertTokenizer, DataCollatorForLanguageModeling
 import random
+from datasets import IterableDataset
+sample_prompts = [
+    "human sculpture of lanky tall alien on a romantic date at italian restaurant with smiling woman, nice restaurant, photography, bokeh",
+    "portrait of barbaric spanish conquistador, symmetrical, by yoichi hatakenaka, studio ghibli and dan mumford",
+    "a small liquid sculpture, corvette, viscous, reflective, digital art",
+    "a beautiful painting of chernobyl by nekro, pascal blanche, john harris, greg rutkowski, sin jong hun, moebius, simon stalenhag. in style of cg art. ray tracing. cel shading. hyper detailed. realistic. ue 5. maya. octane render.",
+    "cyber moai on easter island, digital painting, highly detailed, concept art, trending on artstation, epic composition, sharp focus, flawless render, masterpiece, volumetric lighting"
+]
 
 class ScheduledOptim:
     """A simple wrapper class for learning rate scheduling"""
@@ -51,12 +59,14 @@ class BERTTrainer:
         self,
         bert: BERT,
         tokenizer: BertTokenizer,
-        train_dataloader: DataLoader,
-        test_dataloader: DataLoader = None,
+        collator: DataCollatorForLanguageModeling,
+        train_dataset: IterableDataset,
+        test_dataset: IterableDataset,
         lr: float = 1e-4,
         betas=(0.9, 0.999),
         weight_decay: float = 0.01,
         warmup_steps=10000,
+        max_len: int = 256,
         with_cuda: bool = True,
         cuda_devices=None,
         log_freq: int = 10,
@@ -71,6 +81,7 @@ class BERTTrainer:
         self.model = bert.to(self.device)
 
         self.tokenizer = tokenizer
+        self.collator = collator
         self.use_wandb = use_wandb
 
         # Distributed GPU training if CUDA can detect more than 1 GPU
@@ -79,8 +90,9 @@ class BERTTrainer:
             self.model = nn.DataParallel(self.model, device_ids=cuda_devices)
 
         # Setting the train and test data loader
-        self.train_data = train_dataloader
-        self.test_data = test_dataloader
+        self.train_data = train_dataset
+        self.test_data = test_dataset
+        self.max_len = max_len
 
         # Setting the Adam optimizer with hyper-param
         self.optim = AdamW(
@@ -91,7 +103,7 @@ class BERTTrainer:
         )
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
-        self.criterion = nn.CrossEntropyLoss(ignore_index=0)
+        self.criterion = nn.NLLLoss(ignore_index=-100)
 
         self.log_freq = log_freq
         self.table_rows = []
@@ -103,14 +115,13 @@ class BERTTrainer:
     def test(self, epoch):
         self.iteration(epoch, self.test_data, train=False)
 
-    def iteration(self, epoch, data_loader, train=True):
+    def iteration(self, epoch, dataset: IterableDataset, train=True):
         str_code = "train" if train else "test"
 
         # Setting the tqdm progress bar
         data_iter = tqdm.tqdm(
-            enumerate(data_loader),
+            enumerate(dataset),
             desc="EP_%s:%d" % (str_code, epoch),
-            total=len(data_loader),
             bar_format="{l_bar}{r_bar}",
         )
 
@@ -118,14 +129,16 @@ class BERTTrainer:
 
         for i, data in data_iter:
             # 0. batch_data will be sent into the device(GPU or cpu)
-            input_ids = data["input_ids"].to(self.device)
-            labels = data["labels"].to(self.device)
+            collated = self.collator([data])
+            input_ids = collated["input_ids"].to(self.device)
+            labels = collated["labels"].to(self.device)
 
             # 1. forward the next_sentence_prediction and masked_lm model
             mask_lm_output = self.model.forward(input_ids)
 
+            transposed_output = mask_lm_output.transpose(1, 2)
             # 2-2. NLLLoss of predicting masked token word
-            loss = self.criterion(mask_lm_output.view(-1, self.tokenizer.vocab_size), labels.view(-1))
+            loss = self.criterion(transposed_output, labels)
 
             # next sentence prediction accuracy
             avg_loss += loss.item()
@@ -137,9 +150,6 @@ class BERTTrainer:
                 self.optim_schedule.step_and_update_lr()
 
             if i % self.log_freq == 0:
-                output = torch.argmax(mask_lm_output, dim=2)
-                decoded = self.tokenizer.decode(output[0])
-                print("Sample text: ", decoded)
                 post_fix = {
                     "epoch": epoch,
                     "iter": i,
@@ -150,13 +160,28 @@ class BERTTrainer:
                 if self.use_wandb:
                     wandb.log(post_fix)
                 print(
-                    "EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / len(data_iter)
+                    "EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / (i + 1) 
                 )
 
-        if self.use_wandb:
-            self.table_rows.append([epoch, avg_loss / (i+1), decoded])
-            table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
-            wandb.log({"samples": table})
+        if not train:
+            decoded = self.eval_sample()
+            print(decoded)
+            if self.use_wandb:
+                self.table_rows.append([epoch, avg_loss / (i+1), decoded])
+                table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
+                wandb.log({"samples": table})
+
+    def eval_sample(self):
+        prompt = random.choice(sample_prompts)
+        tokenized = self.tokenizer(
+            prompt, truncation=True, padding="max_length", max_length=self.max_len, return_tensors="pt"
+        )
+        eval_batch = self.collator([tokenized])
+        input_ids = eval_batch["input_ids"].squeeze(0).to(self.device)
+        mask_lm_output = self.model.forward(input_ids)
+        output = torch.argmax(mask_lm_output, dim=2)
+        decoded = self.tokenizer.decode(output[0])
+        return decoded
 
     def save(self, epoch, file_path="output/bert_trained.model"):
         """

@@ -7,11 +7,12 @@ from bert.trainer import BERTTrainer
 import wandb
 from datasets import load_dataset
 from transformers import BertTokenizer, DataCollatorForLanguageModeling
+import sys
 
 gc.collect()
 
+ava = torch.cuda.is_available()
 torch.cuda.empty_cache()
-
 
 args = Namespace(
     hidden=256,
@@ -23,20 +24,24 @@ args = Namespace(
     output_path="/home/ubuntu/superprompt/saved",
     epochs=50,
     log_freq=50,
+    save_freq=10,
+    valid_freq=1,
     adam_beta2=0.999,
     cuda_devices=[0],
     num_workers=4,
     lr=1e-3,
     with_cuda=True,
-    valid_freq=5,
     max_len=256,
-    use_wandb=True
+    use_wandb=False
 )
 
+if __name__ != "__main__":
+    sys.exit(0)
+    
 
-dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts")
+dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts", streaming=True)
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
-    "bert-base-uncased", use_fast=True
+    "bert-base-uncased", use_fast=True, mask_token="[MASK]"
 )
 collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15)
 dataset = dataset.map(
@@ -52,6 +57,12 @@ print(args)
 
 print("Building BERT model")
 
+first_batch = next(iter(dataset["train"]))
+collated = collator([first_batch])
+
+label_list = list(collated["labels"].numpy())
+
+
 bert = BERT(
     tokenizer.vocab_size,
     hidden=args.hidden,
@@ -60,28 +71,21 @@ bert = BERT(
     max_len=args.max_len,
 )
 
-
 if args.use_wandb:
     wandb.init(config=args, project="superprompt")
     wandb.watch(bert, log_freq=args.log_freq)
-
-
-train_dataloader = DataLoader(
-    dataset["train"], batch_size=args.batch_size, num_workers=args.num_workers, collate_fn=collator
-)
-test_dataloader = DataLoader(
-    dataset["test"], batch_size=args.batch_size, num_workers=args.num_workers, collate_fn=collator
-)
 
 print("Creating BERT Trainer")
 trainer = BERTTrainer(
     bert,
     tokenizer,
-    train_dataloader,
-    test_dataloader,
+    collator,
+    dataset["train"],
+    dataset["test"],
     args.lr,
     betas=(args.adam_beta1, args.adam_beta2),
     weight_decay=args.adam_weight_decay,
+    max_len=args.max_len,
     log_freq=args.log_freq,
     with_cuda=args.with_cuda,
     cuda_devices=args.cuda_devices,
@@ -90,7 +94,8 @@ trainer = BERTTrainer(
 
 for epoch in range(args.epochs):
     trainer.train(epoch)
-    trainer.save(epoch, args.output_path)
+    if epoch % args.save_freq == 0:
+        trainer.save(epoch, args.output_path)
 
-    if test_dataloader is not None:
+    if dataset["test"] is not None and epoch % args.valid_freq == 0:
         trainer.test(epoch)
