@@ -121,7 +121,7 @@ class BERTTrainer:
             input_ids = data["input_ids"].to(self.device)
 
             # 1. forward the next_sentence_prediction and masked_lm model
-            mask_lm_output = self.model.forward(input_ids)
+            mask_lm_output = self.model.forward(input_ids, data["attention_mask"].to(self.device))
 
             # 2-2. NLLLoss of predicting masked token word
             loss = self.criterion(mask_lm_output.transpose(1, 2), data["labels"])
