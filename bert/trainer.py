@@ -76,6 +76,7 @@ class BERTTrainer:
         with_cuda: bool = True,
         cuda_devices=None,
         log_freq: int = 10,
+        use_wandb: bool = False,
     ):
         # Setup cuda device for BERT training, argument -c, --cuda should be true
         cuda_condition = torch.cuda.is_available() and with_cuda
@@ -160,14 +161,16 @@ class BERTTrainer:
                     "loss": loss.item(),
                 }
                 data_iter.write(str(post_fix))
-                wandb.log(post_fix)
+                if self.use_wandb:
+                    wandb.log(post_fix)
                 print(
                     "EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / len(data_iter)
                 )
 
-        self.table_rows.append([epoch, avg_loss / (i+1), decoded])
-        table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
-        wandb.log({"samples": table})
+        if self.use_wandb:
+            self.table_rows.append([epoch, avg_loss / (i+1), decoded])
+            table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
+            wandb.log({"samples": table})
 
     def save(self, epoch, file_path="output/bert_trained.model"):
         """

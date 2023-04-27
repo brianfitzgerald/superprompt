@@ -30,6 +30,7 @@ args = Namespace(
     with_cuda=True,
     valid_freq=5,
     max_len=256,
+    use_wandb=False,
 )
 
 
@@ -60,8 +61,9 @@ bert = BERT(
 )
 
 
-wandb.init(config=args, project="superprompt")
-wandb.watch(bert, log_freq=args.log_freq)
+if args.use_wandb:
+    wandb.init(config=args, project="superprompt")
+    wandb.watch(bert, log_freq=args.log_freq)
 
 
 train_dataloader = DataLoader(
@@ -83,6 +85,7 @@ trainer = BERTTrainer(
     log_freq=args.log_freq,
     with_cuda=args.with_cuda,
     cuda_devices=args.cuda_devices,
+    use_wandb=args.use_wandb,
 )
 
 for epoch in range(args.epochs):
