@@ -68,6 +68,7 @@ class BERTTrainer:
         warmup_steps=10000,
         max_len: int = 256,
         log_freq: int = 10,
+        valid_freq: int = 10,
         use_wandb: bool = False,
     ):
         # Setup cuda device for BERT training, argument -c, --cuda should be true
@@ -105,6 +106,7 @@ class BERTTrainer:
         self.criterion = nn.NLLLoss(ignore_index=tokenizer.mask_token_id)
 
         self.log_freq = log_freq
+        self.valid_freq = valid_freq
         self.table_rows = []
 
 
@@ -163,14 +165,13 @@ class BERTTrainer:
                 print(
                     "EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / (i + 1) 
                 )
-
-        if not train:
-            decoded = self.eval_sample()
-            print(decoded)
-            if self.use_wandb:
-                self.table_rows.append([epoch, avg_loss / (i+1), decoded])
-                table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
-                wandb.log({"samples": table})
+            if i % self.valid_freq:
+                decoded = self.eval_sample()
+                print(decoded)
+                if self.use_wandb:
+                    self.table_rows.append([epoch, avg_loss / (i+1), decoded])
+                    table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
+                    wandb.log({"samples": table})
 
     def eval_sample(self):
         prompt = random.choice(sample_prompts)

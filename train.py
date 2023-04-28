@@ -21,8 +21,8 @@ args = Namespace(
     output_path="/home/ubuntu/superprompt/saved",
     epochs=50,
     log_freq=50,
-    save_freq=10,
-    valid_freq=1,
+    save_freq=100,
+    valid_freq=100,
     adam_beta2=0.999,
     num_workers=4,
     lr=1e-3,
@@ -82,6 +82,7 @@ trainer = BERTTrainer(
     weight_decay=args.adam_weight_decay,
     max_len=args.max_len,
     log_freq=args.log_freq,
+    valid_freq=args.valid_freq,
     use_wandb=args.use_wandb,
 )
 
