@@ -67,15 +67,17 @@ class BERTTrainer:
         weight_decay: float = 0.01,
         warmup_steps=10000,
         max_len: int = 256,
-        with_cuda: bool = True,
-        cuda_devices=None,
         log_freq: int = 10,
         use_wandb: bool = False,
     ):
         # Setup cuda device for BERT training, argument -c, --cuda should be true
-        cuda_condition = torch.cuda.is_available() and with_cuda
-        self.device = torch.device("cuda:0" if cuda_condition else "cpu")
-
+        device = torch.device("cpu")
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        elif torch.backends.mps.is_available():
+            device = torch.device("mps")
+        self.device = device
+        
         # This BERT model will be saved every epoch
         # Initialize the BERT Language Model, with BERT model
         self.model = bert.to(self.device)
@@ -83,11 +85,6 @@ class BERTTrainer:
         self.tokenizer = tokenizer
         self.collator = collator
         self.use_wandb = use_wandb
-
-        # Distributed GPU training if CUDA can detect more than 1 GPU
-        if with_cuda and torch.cuda.device_count() > 1:
-            print("Using %d GPUS for BERT" % torch.cuda.device_count())
-            self.model = nn.DataParallel(self.model, device_ids=cuda_devices)
 
         # Setting the train and test data loader
         self.train_data = train_dataset
@@ -103,7 +100,7 @@ class BERTTrainer:
         )
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
-        self.criterion = nn.NLLLoss(ignore_index=-100)
+        self.criterion = nn.NLLLoss(ignore_index=tokenizer.mask_token_id)
 
         self.log_freq = log_freq
         self.table_rows = []

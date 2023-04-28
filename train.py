@@ -11,9 +11,6 @@ import sys
 
 gc.collect()
 
-ava = torch.cuda.is_available()
-torch.cuda.empty_cache()
-
 args = Namespace(
     hidden=256,
     batch_size=32,
@@ -27,10 +24,8 @@ args = Namespace(
     save_freq=10,
     valid_freq=1,
     adam_beta2=0.999,
-    cuda_devices=[0],
     num_workers=4,
     lr=1e-3,
-    with_cuda=True,
     max_len=256,
     use_wandb=False
 )
@@ -41,9 +36,9 @@ if __name__ != "__main__":
 
 dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts", streaming=True)
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
-    "bert-base-uncased", use_fast=True, mask_token="[MASK]"
+    "bert-base-uncased", use_fast=True
 )
-collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15)
+collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.25)
 dataset = dataset.map(
     lambda x: tokenizer(
         x["Prompt"], truncation=True, padding="max_length", max_length=args.max_len, return_tensors="pt"
@@ -87,8 +82,6 @@ trainer = BERTTrainer(
     weight_decay=args.adam_weight_decay,
     max_len=args.max_len,
     log_freq=args.log_freq,
-    with_cuda=args.with_cuda,
-    cuda_devices=args.cuda_devices,
     use_wandb=args.use_wandb,
 )
 
