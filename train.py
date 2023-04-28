@@ -21,13 +21,13 @@ args = Namespace(
     output_path="/home/ubuntu/superprompt/saved",
     epochs=50,
     log_freq=50,
-    save_freq=100,
-    valid_freq=100,
+    save_freq=32 * 10,
+    valid_freq=32 * 100,
     adam_beta2=0.999,
     num_workers=4,
     lr=1e-3,
     max_len=256,
-    use_wandb=False
+    use_wandb=True
 )
 
 if __name__ != "__main__":
