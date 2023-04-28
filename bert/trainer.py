@@ -139,9 +139,10 @@ class BERTTrainer:
             output = torch.argmax(transposed_output, dim=2)
             print('transposed_output', output.tolist())
             print('labels', labels.tolist())
+            print('input ids', input_ids.tolist())
 
             # 2-2. NLLLoss of predicting masked token word
-            loss = self.criterion(transposed_output, labels)
+            loss = self.criterion(transposed_output, input_ids)
 
             # next sentence prediction accuracy
             avg_loss += loss.item()
