@@ -77,6 +77,7 @@ class BERTTrainer:
         elif torch.backends.mps.is_available():
             device = torch.device("mps")
         self.device = device
+        print('device', device)
         
         # This BERT model will be saved every epoch
         # Initialize the BERT Language Model, with BERT model
@@ -100,6 +101,7 @@ class BERTTrainer:
         )
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
+        print('mask token id', tokenizer.mask_token_id)
         self.criterion = nn.NLLLoss(ignore_index=tokenizer.mask_token_id)
 
         self.log_freq = log_freq
@@ -134,6 +136,9 @@ class BERTTrainer:
             mask_lm_output = self.model.forward(input_ids)
 
             transposed_output = mask_lm_output.transpose(1, 2)
+            print('transposed_output', transposed_output.tolist())
+            print('labels', labels.tolist())
+
             # 2-2. NLLLoss of predicting masked token word
             loss = self.criterion(transposed_output, labels)
 
