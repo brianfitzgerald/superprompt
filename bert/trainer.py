@@ -167,6 +167,7 @@ class BERTTrainer:
                 )
             if i % self.valid_freq == 0:
                 decoded = self.eval_sample()
+                print('sample', decoded)
                 if self.use_wandb:
                     self.table_rows.append([epoch, avg_loss / (i+1), decoded])
                     table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
