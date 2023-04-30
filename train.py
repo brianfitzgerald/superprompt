@@ -34,12 +34,7 @@ if __name__ != "__main__":
     sys.exit(0)
 
 
-dataset = load_dataset(
-    "Gustavosta/Stable-Diffusion-Prompts",
-    streaming=True,
-    batched=True,
-    batch_size=args.batch_size,
-)
+dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts", streaming=True,)
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
@@ -94,6 +89,7 @@ trainer = BERTTrainer(
     max_len=args.max_len,
     log_freq=args.log_freq,
     valid_freq=args.valid_freq,
+    batch_size=args.batch_size,
     use_wandb=args.use_wandb,
 )
 

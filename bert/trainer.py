@@ -69,6 +69,7 @@ class BERTTrainer:
         weight_decay: float = 0.01,
         warmup_steps=10000,
         max_len: int = 256,
+        batch_size: int = 32,
         log_freq: int = 10,
         valid_freq: int = 10,
         use_wandb: bool = False,
@@ -89,6 +90,7 @@ class BERTTrainer:
         self.tokenizer = tokenizer
         self.collator = collator
         self.use_wandb = use_wandb
+        self.batch_size = batch_size
 
         # Setting the train and test data loader
         self.train_data = train_dataset
@@ -122,7 +124,7 @@ class BERTTrainer:
 
         # Setting the tqdm progress bar
         data_iter = tqdm.tqdm(
-            enumerate(dataset),
+            enumerate(dataset.iter(batch_size=self.batch_size)),
             desc="EP_%s:%d" % (str_code, epoch),
             bar_format="{l_bar}{r_bar}",
         )
