@@ -1,13 +1,14 @@
 from argparse import Namespace
-from torch.utils.data import DataLoader
 import gc
-import torch
 from bert.model import BERT
 from bert.trainer import BERTTrainer
 import wandb
 from datasets import load_dataset
 from transformers import BertTokenizer, DataCollatorForLanguageModeling
 import sys
+import os
+
+running_on_server = os.environ.get("USER") == "ubuntu"
 
 gc.collect()
 
@@ -27,7 +28,7 @@ args = Namespace(
     num_workers=4,
     lr=1e-3,
     max_len=256,
-    use_wandb=True,
+    use_wandb=running_on_server,
 )
 
 if __name__ != "__main__":
@@ -95,8 +96,3 @@ trainer = BERTTrainer(
 
 for epoch in range(args.epochs):
     trainer.train(epoch)
-    if epoch % args.save_freq == 0:
-        trainer.save(epoch, args.output_path)
-
-    if dataset["test"] is not None and epoch % args.valid_freq == 0:
-        trainer.test(epoch)

@@ -72,6 +72,7 @@ class BERTTrainer:
         batch_size: int = 32,
         log_freq: int = 10,
         valid_freq: int = 10,
+        output_path: str = "./saved",
         use_wandb: bool = False,
     ):
         # Setup cuda device for BERT training, argument -c, --cuda should be true
@@ -88,9 +89,10 @@ class BERTTrainer:
         self.model = bert.to(self.device)
 
         self.tokenizer = tokenizer
-        self.collator = collator
-        self.use_wandb = use_wandb
-        self.batch_size = batch_size
+        self.collator: DataCollatorForLanguageModeling = collator
+        self.use_wandb: bool = use_wandb
+        self.batch_size: int = batch_size
+        self.output_path: str = output_path
 
         # Setting the train and test data loader
         self.train_data = train_dataset
@@ -122,58 +124,64 @@ class BERTTrainer:
     def iteration(self, epoch, dataset: IterableDataset, train=True):
         str_code = "train" if train else "test"
 
+        i, j = 0, 0
+
         # Setting the tqdm progress bar
         data_iter = tqdm.tqdm(
             enumerate(dataset.iter(batch_size=self.batch_size)),
-            desc="EP_%s:%d" % (str_code, epoch),
+            desc="%s:%d%d" % (str_code, i, j),
             bar_format="{l_bar}{r_bar}",
         )
 
         avg_loss = 0.0
 
-        for i, data in data_iter:
-            # 0. batch_data will be sent into the device(GPU or cpu)
-            collated = self.collator([data])
-            input_ids = collated["input_ids"].to(self.device)
-            labels = collated["labels"].to(self.device)
+        for i, batch in enumerate(data_iter):
+            for j, data in batch:
+                # 0. batch_data will be sent into the device(GPU or cpu)
+                collated = self.collator([data])
+                input_ids = collated["input_ids"].to(self.device)
+                labels = collated["labels"].to(self.device)
 
-            # 1. forward the next_sentence_prediction and masked_lm model
-            mask_lm_output = self.model.forward(input_ids)
+                # 1. forward the next_sentence_prediction and masked_lm model
+                mask_lm_output = self.model.forward(input_ids)
 
-            transposed_output = mask_lm_output.transpose(1, 2)
-            output = torch.argmax(transposed_output, dim=2)
+                transposed_output = mask_lm_output.transpose(1, 2)
+                output = torch.argmax(transposed_output, dim=2)
 
-            # 2-2. NLLLoss of predicting masked token word
-            loss = self.criterion(transposed_output, input_ids)
+                # 2-2. NLLLoss of predicting masked token word
+                loss = self.criterion(transposed_output, input_ids)
 
-            # next sentence prediction accuracy
-            avg_loss += loss.item()
+                # next sentence prediction accuracy
+                avg_loss += loss.item()
 
-            # 3. backward and optimization only in train
-            if train:
-                self.optim_schedule.zero_grad()
-                loss.backward()
-                self.optim_schedule.step_and_update_lr()
+                # 3. backward and optimization only in train
+                if train:
+                    self.optim_schedule.zero_grad()
+                    loss.backward()
+                    self.optim_schedule.step_and_update_lr()
 
-            if i % self.log_freq == 0:
-                post_fix = {
-                    "epoch": epoch,
-                    "iter": i,
-                    "avg_loss": avg_loss / (i + 1),
-                    "loss": loss.item(),
-                }
-                data_iter.write(str(post_fix))
-                if self.use_wandb:
-                    wandb.log(post_fix)
-                print("EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / (i + 1))
+                if j % self.log_freq == 0:
+                    post_fix = {
+                        "epoch": epoch,
+                        "iter": j,
+                        "batch": i,
+                        "avg_loss": avg_loss / (j + 1),
+                        "loss": loss.item(),
+                    }
+                    data_iter.write(str(post_fix))
+                    if self.use_wandb:
+                        wandb.log(post_fix)
+                    print("EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / (j + 1))
             if i % self.valid_freq == 0:
                 decoded = self.eval_sample()
                 if self.use_wandb:
-                    self.table_rows.append([epoch, avg_loss / (i + 1), decoded])
+                    self.table_rows.append([epoch, avg_loss / (j + 1), decoded])
                     table = wandb.Table(
-                        data=self.table_rows, columns=["epoch", "avg_loss", "sample"]
+                        data=self.table_rows, columns=["epoch", "avg_loss", "sample"],
                     )
                     wandb.log({"samples": table})
+            if i % self.save_freq == 0:
+                self.save(epoch, self.output_path)
 
     def eval_sample(self):
         prompt = random.choice(sample_prompts)
