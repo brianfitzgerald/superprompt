@@ -72,6 +72,7 @@ class BERTTrainer:
         batch_size: int = 32,
         log_freq: int = 10,
         valid_freq: int = 10,
+        save_freq: int = 1000,
         output_path: str = "./saved",
         use_wandb: bool = False,
     ):
@@ -112,6 +113,7 @@ class BERTTrainer:
         self.criterion = nn.NLLLoss(ignore_index=tokenizer.mask_token_id)
 
         self.log_freq = log_freq
+        self.save_freq = save_freq
         self.valid_freq = valid_freq
         self.table_rows = []
 
@@ -129,49 +131,41 @@ class BERTTrainer:
         # Setting the tqdm progress bar
         data_iter = tqdm.tqdm(
             enumerate(dataset.iter(batch_size=self.batch_size)),
-            desc="%s:%d%d" % (str_code, i, j),
+            desc="%s:%d" % (str_code, i),
             bar_format="{l_bar}{r_bar}",
         )
 
         avg_loss = 0.0
 
-        for i, batch in enumerate(data_iter):
-            for j, data in batch:
-                # 0. batch_data will be sent into the device(GPU or cpu)
-                collated = self.collator([data])
-                input_ids = collated["input_ids"].to(self.device)
-                labels = collated["labels"].to(self.device)
+        for i, data in data_iter:
+            # 0. batch_data will be sent into the device(GPU or cpu)
+            collated = self.collator(data["input_ids"])
+            input_ids = collated["input_ids"].to(self.device)
 
-                # 1. forward the next_sentence_prediction and masked_lm model
-                mask_lm_output = self.model.forward(input_ids)
+            mask_lm_output = self.model.forward(input_ids)
 
-                transposed_output = mask_lm_output.transpose(1, 2)
-                output = torch.argmax(transposed_output, dim=2)
+            transposed_output = mask_lm_output.transpose(1, 2)
 
-                # 2-2. NLLLoss of predicting masked token word
-                loss = self.criterion(transposed_output, input_ids)
+            loss = self.criterion(transposed_output, input_ids)
 
-                # next sentence prediction accuracy
-                avg_loss += loss.item()
+            avg_loss += loss.item()
 
-                # 3. backward and optimization only in train
-                if train:
-                    self.optim_schedule.zero_grad()
-                    loss.backward()
-                    self.optim_schedule.step_and_update_lr()
+            if train:
+                self.optim_schedule.zero_grad()
+                loss.backward()
+                self.optim_schedule.step_and_update_lr()
 
-                if j % self.log_freq == 0:
-                    post_fix = {
-                        "epoch": epoch,
-                        "iter": j,
-                        "batch": i,
-                        "avg_loss": avg_loss / (j + 1),
-                        "loss": loss.item(),
-                    }
-                    data_iter.write(str(post_fix))
-                    if self.use_wandb:
-                        wandb.log(post_fix)
-                    print("EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / (j + 1))
+            if j % self.log_freq == 0:
+                post_fix = {
+                    "epoch": epoch,
+                    "batch": i,
+                    "avg_loss": avg_loss / (j + 1),
+                    "loss": loss.item(),
+                }
+                data_iter.write(str(post_fix))
+                if self.use_wandb:
+                    wandb.log(post_fix)
+                print("EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / (j + 1))
             if i % self.valid_freq == 0:
                 decoded = self.eval_sample()
                 if self.use_wandb:
