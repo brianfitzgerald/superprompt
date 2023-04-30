@@ -10,13 +10,15 @@ import wandb
 from transformers import BertTokenizer, DataCollatorForLanguageModeling
 import random
 from datasets import IterableDataset
+
 sample_prompts = [
     "human sculpture of lanky tall alien on a romantic date at italian restaurant with smiling woman, nice restaurant, photography, bokeh",
     "portrait of barbaric spanish conquistador, symmetrical, by yoichi hatakenaka, studio ghibli and dan mumford",
     "a small liquid sculpture, corvette, viscous, reflective, digital art",
     "a beautiful painting of chernobyl by nekro, pascal blanche, john harris, greg rutkowski, sin jong hun, moebius, simon stalenhag. in style of cg art. ray tracing. cel shading. hyper detailed. realistic. ue 5. maya. octane render.",
-    "cyber moai on easter island, digital painting, highly detailed, concept art, trending on artstation, epic composition, sharp focus, flawless render, masterpiece, volumetric lighting"
+    "cyber moai on easter island, digital painting, highly detailed, concept art, trending on artstation, epic composition, sharp focus, flawless render, masterpiece, volumetric lighting",
 ]
+
 
 class ScheduledOptim:
     """A simple wrapper class for learning rate scheduling"""
@@ -78,8 +80,8 @@ class BERTTrainer:
         elif torch.backends.mps.is_available():
             device = torch.device("mps")
         self.device = device
-        print('device', device)
-        
+        print("device", device)
+
         # This BERT model will be saved every epoch
         # Initialize the BERT Language Model, with BERT model
         self.model = bert.to(self.device)
@@ -102,13 +104,12 @@ class BERTTrainer:
         )
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
-        print('mask token id', tokenizer.mask_token_id)
+        print("mask token id", tokenizer.mask_token_id)
         self.criterion = nn.NLLLoss(ignore_index=tokenizer.mask_token_id)
 
         self.log_freq = log_freq
         self.valid_freq = valid_freq
         self.table_rows = []
-
 
     def train(self, epoch):
         self.iteration(epoch, self.train_data)
@@ -162,27 +163,34 @@ class BERTTrainer:
                 data_iter.write(str(post_fix))
                 if self.use_wandb:
                     wandb.log(post_fix)
-                print(
-                    "EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / (i + 1) 
-                )
+                print("EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / (i + 1))
             if i % self.valid_freq == 0:
                 decoded = self.eval_sample()
-                print('sample', decoded)
                 if self.use_wandb:
-                    self.table_rows.append([epoch, avg_loss / (i+1), decoded])
-                    table = wandb.Table(data=self.table_rows, columns=["epoch", "avg_loss", "sample"])
+                    self.table_rows.append([epoch, avg_loss / (i + 1), decoded])
+                    table = wandb.Table(
+                        data=self.table_rows, columns=["epoch", "avg_loss", "sample"]
+                    )
                     wandb.log({"samples": table})
 
     def eval_sample(self):
         prompt = random.choice(sample_prompts)
+        print("---EVAL---")
+        print("prompt", prompt)
         tokenized = self.tokenizer(
-            prompt, truncation=True, padding="max_length", max_length=self.max_len, return_tensors="pt"
+            prompt,
+            truncation=True,
+            padding="max_length",
+            max_length=self.max_len,
+            return_tensors="pt",
         )
         eval_batch = self.collator([tokenized])
+        print("batch", eval_batch)
         input_ids = eval_batch["input_ids"].squeeze(0).to(self.device)
         mask_lm_output = self.model.forward(input_ids)
         output = torch.argmax(mask_lm_output, dim=2)
         decoded = self.tokenizer.decode(output[0])
+        print("decoded", decoded)
         return decoded
 
     def save(self, epoch, file_path="output/bert_trained.model"):

@@ -27,25 +27,36 @@ args = Namespace(
     num_workers=4,
     lr=1e-3,
     max_len=256,
-    use_wandb=True
+    use_wandb=True,
 )
 
 if __name__ != "__main__":
     sys.exit(0)
-    
 
-dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts", streaming=True)
+
+dataset = load_dataset(
+    "Gustavosta/Stable-Diffusion-Prompts",
+    streaming=True,
+    batched=True,
+    batch_size=args.batch_size,
+)
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
-collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.25)
+collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer, mlm=True, mlm_probability=0.25
+)
 dataset = dataset.map(
     lambda x: tokenizer(
-        x["Prompt"], truncation=True, padding="max_length", max_length=args.max_len, return_tensors="pt"
+        x["Prompt"],
+        truncation=True,
+        padding="max_length",
+        max_length=args.max_len,
+        return_tensors="pt",
     ),
     batched=True,
 )
-dataset = dataset.remove_columns(['Prompt'])
+dataset = dataset.remove_columns(["Prompt"])
 
 print(args)
 
