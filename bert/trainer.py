@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.optim import AdamW
+from torch.optim import AdamW, Adam
 from torch.utils.data import DataLoader
 import numpy as np
 import tqdm
@@ -8,7 +8,6 @@ from IPython.display import display
 from bert.model import BERT
 import wandb
 from transformers import BertTokenizer, DataCollatorForLanguageModeling
-import random
 from datasets import IterableDataset
 
 sample_prompts = [
@@ -101,7 +100,7 @@ class BERTTrainer:
         self.max_len = max_len
 
         # Setting the Adam optimizer with hyper-param
-        self.optim = AdamW(
+        self.optim = Adam(
             self.model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay
         )
         self.optim_schedule = ScheduledOptim(
@@ -110,7 +109,7 @@ class BERTTrainer:
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
         print("mask token id", tokenizer.mask_token_id)
-        self.criterion = nn.NLLLoss(ignore_index=tokenizer.mask_token_id)
+        self.criterion = nn.NLLLoss()
 
         self.log_freq = log_freq
         self.save_freq = save_freq
@@ -154,6 +153,7 @@ class BERTTrainer:
             if train:
                 self.optim_schedule.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
                 self.optim_schedule.step_and_update_lr()
 
             if j % self.log_freq == 0:
@@ -167,7 +167,7 @@ class BERTTrainer:
                 if self.use_wandb:
                     wandb.log(post_fix)
             if i % self.valid_freq == 0:
-                decoded = self.eval_sample()
+                decoded = self.eval_sample(epoch)
                 if self.use_wandb:
                     self.table_rows.append([epoch, loss, decoded])
                     print("table", len(self.table_rows))
@@ -179,9 +179,9 @@ class BERTTrainer:
             if i % self.save_freq == 0:
                 self.save(epoch, self.output_path)
 
-    def eval_sample(self):
-        prompt = random.choice(sample_prompts)
+    def eval_sample(self, epoch: int):
         print("---EVAL---")
+        prompt = sample_prompts[epoch % len(sample_prompts)]
         print("prompt", prompt)
         tokenized = self.tokenizer(
             prompt,

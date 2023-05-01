@@ -184,6 +184,7 @@ class BERT(nn.Module):
         # attention mask for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
         mask = (x > 0).unsqueeze(1).repeat(1, x.size(1), 1).unsqueeze(1)
+        print("bert mask", mask)
 
         # get the embedding for the input sequence
         x = self.embedding(x)
