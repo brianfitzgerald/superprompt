@@ -148,7 +148,7 @@ class BERTTrainer:
             loss = self.criterion(transposed_output, input_ids)
 
             avg_loss += loss.item()
-            avg_loss /= j + 1
+            avg_loss /= i + (epoch * len(dataset))
             print(f"epoch {epoch} i {i} avg_loss {avg_loss}")
 
             if train:
@@ -169,11 +169,11 @@ class BERTTrainer:
             if i % self.valid_freq == 0:
                 decoded = self.eval_sample()
                 if self.use_wandb:
-                    self.table_rows.append([epoch, avg_loss, decoded])
+                    self.table_rows.append([epoch, loss, decoded])
                     print("table", len(self.table_rows))
                     table = wandb.Table(
                         data=self.table_rows,
-                        columns=["epoch", "avg_loss", "sample"],
+                        columns=["epoch", "loss", "sample"],
                     )
                     wandb.log({"samples": table})
             if i % self.save_freq == 0:
