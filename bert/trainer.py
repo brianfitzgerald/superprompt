@@ -147,7 +147,7 @@ class BERTTrainer:
             loss = self.criterion(transposed_output, input_ids)
 
             avg_loss += loss.item()
-            avg_loss /= i
+            avg_loss /= i + 1
             print(f"epoch {epoch} i {i} avg_loss {avg_loss}")
 
             if train:
