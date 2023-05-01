@@ -109,7 +109,7 @@ class BERTTrainer:
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
         print("mask token id", tokenizer.mask_token_id)
-        self.criterion = nn.NLLLoss()
+        self.criterion = nn.NLLLoss(ignore_index=tokenizer.mask_token_id)
 
         self.log_freq = log_freq
         self.save_freq = save_freq
@@ -147,7 +147,7 @@ class BERTTrainer:
             loss = self.criterion(transposed_output, input_ids)
 
             avg_loss += loss.item()
-            avg_loss /= i + (epoch * len(dataset))
+            avg_loss /= i
             print(f"epoch {epoch} i {i} avg_loss {avg_loss}")
 
             if train:
