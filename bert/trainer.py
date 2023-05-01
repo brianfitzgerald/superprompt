@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.optim import AdamW, Adam
+from torch.optim import AdamW
 from torch.utils.data import DataLoader
 import numpy as np
 import tqdm
@@ -8,14 +8,15 @@ from IPython.display import display
 from bert.model import BERT
 import wandb
 from transformers import BertTokenizer, DataCollatorForLanguageModeling
+import random
 from datasets import IterableDataset
 
 sample_prompts = [
     "human sculpture of lanky tall alien on a romantic date at italian restaurant with smiling woman, nice restaurant, photography, bokeh",
     "portrait of barbaric spanish conquistador, symmetrical, by yoichi hatakenaka, studio ghibli and dan mumford",
+    "a small liquid sculpture, corvette, viscous, reflective, digital art",
     "a beautiful painting of chernobyl by nekro, pascal blanche, john harris, greg rutkowski, sin jong hun, moebius, simon stalenhag. in style of cg art. ray tracing. cel shading. hyper detailed. realistic. ue 5. maya. octane render.",
-    "human sculpture of lanky tall alien on a romantic date at italian restaurant with smiling woman, nice restaurant, photography, bokeh",
-    "portrait of a rusian evil cyberpunk robot made of rusty clocks,dark styled, dramatic,extremely detailed, trending on artstation, cinematic view, beautiful composition, ambient light, fog, phenomenal photography",
+    "cyber moai on easter island, digital painting, highly detailed, concept art, trending on artstation, epic composition, sharp focus, flawless render, masterpiece, volumetric lighting",
 ]
 
 
@@ -100,7 +101,7 @@ class BERTTrainer:
         self.max_len = max_len
 
         # Setting the Adam optimizer with hyper-param
-        self.optim = Adam(
+        self.optim = AdamW(
             self.model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay
         )
         self.optim_schedule = ScheduledOptim(
@@ -123,8 +124,6 @@ class BERTTrainer:
         self.iteration(epoch, self.test_data, train=False)
 
     def iteration(self, epoch, dataset: IterableDataset, train=True):
-        i, j = 0, 0
-
         # Setting the tqdm progress bar
         data_iter = tqdm.tqdm(
             enumerate(dataset.iter(batch_size=self.batch_size)),
@@ -137,7 +136,8 @@ class BERTTrainer:
             # 0. batch_data will be sent into the device(GPU or cpu)
             collated = self.collator(data["input_ids"])
             input_ids = collated["input_ids"].to(self.device)
-            attn_mask = collated["attention_mask"].to(self.device)
+            attn_mask = torch.stack(data["attention_mask"]).to(self.device)
+            print("attn", attn_mask.shape)
 
             mask_lm_output = self.model.forward(input_ids, attn_mask)
 
@@ -152,10 +152,9 @@ class BERTTrainer:
             if train:
                 self.optim_schedule.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
                 self.optim_schedule.step_and_update_lr()
 
-            if j % self.log_freq == 0:
+            if i % self.log_freq == 0:
                 post_fix = {
                     "epoch": epoch,
                     "batch": i,
@@ -166,21 +165,21 @@ class BERTTrainer:
                 if self.use_wandb:
                     wandb.log(post_fix)
             if i % self.valid_freq == 0:
-                decoded = self.eval_sample(epoch)
+                decoded = self.eval_sample()
                 if self.use_wandb:
-                    self.table_rows.append([epoch, loss, decoded])
+                    self.table_rows.append([epoch, avg_loss, decoded])
                     print("table", len(self.table_rows))
                     table = wandb.Table(
                         data=self.table_rows,
-                        columns=["epoch", "loss", "sample"],
+                        columns=["epoch", "avg_loss", "sample"],
                     )
                     wandb.log({"samples": table})
             if i % self.save_freq == 0:
                 self.save(epoch, self.output_path)
 
-    def eval_sample(self, epoch: int):
+    def eval_sample(self):
+        prompt = random.choice(sample_prompts)
         print("---EVAL---")
-        prompt = sample_prompts[epoch % len(sample_prompts)]
         print("prompt", prompt)
         tokenized = self.tokenizer(
             prompt,
@@ -193,8 +192,9 @@ class BERTTrainer:
         eval_batch = self.collator([tokenized])
         print("batch", eval_batch)
         input_ids = eval_batch["input_ids"].squeeze(0).to(self.device)
+        attn_mask = tokenized["attention_mask"].to(self.device)
         print("input ids", input_ids)
-        mask_lm_output = self.model.forward(input_ids)
+        mask_lm_output = self.model.forward(input_ids, attn_mask)
         output = torch.argmax(mask_lm_output, dim=2)
         print("output", output)
         decoded = self.tokenizer.decode(output[0])

@@ -183,9 +183,7 @@ class BERT(nn.Module):
     def forward(self, x, mask):
         # attention mask for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
-        print(mask.shape)
-        mask = mask.unsqueeze(1)
-        print(mask.shape)
+        mask = mask.unsqueeze(1).repeat(1, x.size(1), 1).unsqueeze(1)
 
         # get the embedding for the input sequence
         x = self.embedding(x)
