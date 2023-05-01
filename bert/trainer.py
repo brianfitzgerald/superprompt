@@ -137,7 +137,6 @@ class BERTTrainer:
             collated = self.collator(data["input_ids"])
             input_ids = collated["input_ids"].to(self.device)
             attn_mask = torch.stack(data["attention_mask"]).to(self.device)
-            print("attn", attn_mask.shape)
 
             mask_lm_output = self.model.forward(input_ids, attn_mask)
 
