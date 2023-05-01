@@ -170,8 +170,10 @@ class BERTTrainer:
                 decoded = self.eval_sample()
                 if self.use_wandb:
                     self.table_rows.append([epoch, avg_loss / (j + 1), decoded])
+                    print("table", len(self.table_rows))
                     table = wandb.Table(
-                        data=self.table_rows, columns=["epoch", "avg_loss", "sample"],
+                        data=self.table_rows,
+                        columns=["epoch", "avg_loss", "sample"],
                     )
                     wandb.log({"samples": table})
             if i % self.save_freq == 0:

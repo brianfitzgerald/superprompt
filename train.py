@@ -34,13 +34,18 @@ args = Namespace(
 if __name__ != "__main__":
     sys.exit(0)
 
+if running_on_server:
+    print("Running on server, using wandb")
 
-dataset = load_dataset("Gustavosta/Stable-Diffusion-Prompts", streaming=True,)
+dataset = load_dataset(
+    "Gustavosta/Stable-Diffusion-Prompts",
+    streaming=True,
+)
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
 collator = DataCollatorForLanguageModeling(
-    tokenizer=tokenizer, mlm=True, mlm_probability=0.25
+    tokenizer=tokenizer, mlm=True, mlm_probability=0.15
 )
 dataset = dataset.map(
     lambda x: tokenizer(
