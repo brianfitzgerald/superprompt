@@ -14,20 +14,20 @@ gc.collect()
 
 args = Namespace(
     hidden=256,
-    batch_size=32,
+    batch_size=64,
     layers=8,
     attn_heads=8,
     adam_weight_decay=0.01,
     adam_beta1=0.9,
     output_path="/home/ubuntu/superprompt/saved",
     epochs=50,
-    log_freq=50,
+    log_freq=32 * 2,
     save_freq=32 * 10,
-    valid_freq=32,
+    valid_freq=32 * 5,
     adam_beta2=0.999,
     num_workers=4,
     lr=1e-3,
-    max_len=256,
+    max_len=128,
     use_wandb=running_on_server,
 )
 

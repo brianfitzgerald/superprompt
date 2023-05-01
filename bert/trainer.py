@@ -190,6 +190,7 @@ class BERTTrainer:
             max_length=self.max_len,
             return_tensors="pt",
         )
+        print("tokenized", tokenized)
         eval_batch = self.collator([tokenized])
         print("batch", eval_batch)
         input_ids = eval_batch["input_ids"].squeeze(0).to(self.device)
