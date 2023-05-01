@@ -194,8 +194,10 @@ class BERTTrainer:
         eval_batch = self.collator([tokenized])
         print("batch", eval_batch)
         input_ids = eval_batch["input_ids"].squeeze(0).to(self.device)
+        print("input ids", input_ids)
         mask_lm_output = self.model.forward(input_ids)
         output = torch.argmax(mask_lm_output, dim=2)
+        print("output", output)
         decoded = self.tokenizer.decode(output[0])
         print("decoded", decoded)
         return decoded
