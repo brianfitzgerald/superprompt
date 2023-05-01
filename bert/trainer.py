@@ -123,8 +123,6 @@ class BERTTrainer:
         self.iteration(epoch, self.test_data, train=False)
 
     def iteration(self, epoch, dataset: IterableDataset, train=True):
-        str_code = "train" if train else "test"
-
         i, j = 0, 0
 
         # Setting the tqdm progress bar
@@ -139,8 +137,9 @@ class BERTTrainer:
             # 0. batch_data will be sent into the device(GPU or cpu)
             collated = self.collator(data["input_ids"])
             input_ids = collated["input_ids"].to(self.device)
+            attn_mask = collated["attention_mask"].to(self.device)
 
-            mask_lm_output = self.model.forward(input_ids)
+            mask_lm_output = self.model.forward(input_ids, attn_mask)
 
             transposed_output = mask_lm_output.transpose(1, 2)
 

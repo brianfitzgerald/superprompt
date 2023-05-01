@@ -26,7 +26,7 @@ args = Namespace(
     valid_freq=32 * 5,
     adam_beta2=0.999,
     num_workers=4,
-    lr=1e-3,
+    lr=3e-4,
     max_len=128,
     use_wandb=running_on_server,
 )

@@ -180,10 +180,12 @@ class BERT(nn.Module):
         self.linear = nn.Linear(hidden, vocab_size)
         self.softmax = nn.LogSoftmax(dim=-1)
 
-    def forward(self, x):
+    def forward(self, x, mask):
         # attention mask for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
-        mask = (x > 0).unsqueeze(1).repeat(1, x.size(1), 1).unsqueeze(1)
+        print(mask.shape)
+        mask = mask.unsqueeze(1)
+        print(mask.shape)
 
         # get the embedding for the input sequence
         x = self.embedding(x)
