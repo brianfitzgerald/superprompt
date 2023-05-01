@@ -131,7 +131,6 @@ class BERTTrainer:
         # Setting the tqdm progress bar
         data_iter = tqdm.tqdm(
             enumerate(dataset.iter(batch_size=self.batch_size)),
-            desc="%s:%d" % (str_code, i),
             bar_format="{l_bar}{r_bar}",
         )
 
@@ -149,6 +148,8 @@ class BERTTrainer:
             loss = self.criterion(transposed_output, input_ids)
 
             avg_loss += loss.item()
+            avg_loss /= j + 1
+            print(f"epoch {epoch} i {i} avg_loss {avg_loss}")
 
             if train:
                 self.optim_schedule.zero_grad()
@@ -159,17 +160,16 @@ class BERTTrainer:
                 post_fix = {
                     "epoch": epoch,
                     "batch": i,
-                    "avg_loss": avg_loss / (j + 1),
+                    "avg_loss": avg_loss,
                     "loss": loss.item(),
                 }
                 data_iter.write(str(post_fix))
                 if self.use_wandb:
                     wandb.log(post_fix)
-                print("EP%d_%s, avg_loss=" % (epoch, str_code), avg_loss / (j + 1))
             if i % self.valid_freq == 0:
                 decoded = self.eval_sample()
                 if self.use_wandb:
-                    self.table_rows.append([epoch, avg_loss / (j + 1), decoded])
+                    self.table_rows.append([epoch, avg_loss, decoded])
                     print("table", len(self.table_rows))
                     table = wandb.Table(
                         data=self.table_rows,
