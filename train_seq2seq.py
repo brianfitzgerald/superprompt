@@ -111,6 +111,7 @@ def train(model, iterator, optimizer, criterion, clip):
         # output = [(trg len - 1) * batch size, output dim]
 
         loss = criterion(output, trg)
+        loss.requires_grad = True
 
         loss.backward()
 
