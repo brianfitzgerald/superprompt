@@ -117,6 +117,7 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
 
         loss = criterion(output, trg)
         # loss.requires_grad = True
+        print(loss.item(), i, flush=True)
 
         loss.backward()
 
