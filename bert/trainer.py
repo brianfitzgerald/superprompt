@@ -10,6 +10,7 @@ import wandb
 from transformers import BertTokenizer, DataCollatorForLanguageModeling
 import random
 from datasets import IterableDataset
+from utils import get_available_device
 
 sample_prompts = [
     "human sculpture of lanky tall alien on a romantic date at italian restaurant with smiling woman, nice restaurant, photography, bokeh",
@@ -77,16 +78,9 @@ class BERTTrainer:
         use_wandb: bool = False,
     ):
         # Setup cuda device for BERT training, argument -c, --cuda should be true
-        device = torch.device("cpu")
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-        elif torch.backends.mps.is_available():
-            device = torch.device("mps")
-        self.device = device
-        print("device", device)
-
         # This BERT model will be saved every epoch
         # Initialize the BERT Language Model, with BERT model
+        self.device = get_available_device()
         self.model = bert.to(self.device)
 
         self.tokenizer = tokenizer

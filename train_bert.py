@@ -59,11 +59,6 @@ dataset = dataset.map(
 )
 dataset = dataset.remove_columns(["Prompt"])
 
-print(args)
-
-
-print("Building BERT model")
-
 first_batch = next(iter(dataset["train"]))
 collated = collator([first_batch])
 
