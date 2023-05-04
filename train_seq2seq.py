@@ -30,7 +30,7 @@ class Args(Namespace):
     max_length = 128
     batch_size = 128
     use_wandb = should_use_wandb()
-    log_freq = 32
+    log_freq = 16
 
 
 dataset = load_dataset(
@@ -117,7 +117,8 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
         loss = criterion(output, trg)
         # loss.requires_grad = True
         print(loss.item(), i, flush=True)
-        wandb.log({"loss": loss.item()})
+        if i % Args.log_freq == 0 and Args.use_wandb:
+            wandb.log({"loss": loss.item()})
 
         loss.backward()
 
