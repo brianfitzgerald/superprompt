@@ -8,34 +8,33 @@ from transformers import BertTokenizer, DataCollatorForLanguageModeling
 import sys
 import os
 
-running_on_server = os.environ.get("USER") == "ubuntu"
+from utils import should_use_wandb, sample_prompts
+
 
 gc.collect()
 
-args = Namespace(
-    hidden=256,
-    batch_size=64,
-    layers=8,
-    attn_heads=8,
-    adam_weight_decay=0.01,
-    adam_beta1=0.9,
-    output_path="/home/ubuntu/superprompt/saved",
-    epochs=500,
-    log_freq=32 * 2,
-    save_freq=32 * 10,
-    valid_freq=32 * 5,
-    adam_beta2=0.999,
-    num_workers=4,
-    lr=3e-4,
-    max_len=128,
-    use_wandb=running_on_server,
-)
+
+class Args(Namespace):
+    hidden = 256
+    batch_size = 64
+    layers = 8
+    attn_heads = 8
+    adam_weight_decay = 0.01
+    adam_beta1 = 0.9
+    output_path = "/home/ubuntu/superprompt/saved"
+    epochs = 500
+    log_freq = 32 * 2
+    save_freq = 32 * 10
+    valid_freq = 32 * 5
+    adam_beta2 = 0.999
+    num_workers = 4
+    lr = 3e-4
+    max_len = 128
+    use_wandb = should_use_wandb()
+
 
 if __name__ != "__main__":
     sys.exit(0)
-
-if running_on_server:
-    print("Running on server, using wandb")
 
 dataset = load_dataset(
     "Gustavosta/Stable-Diffusion-Prompts",
@@ -52,30 +51,25 @@ dataset = dataset.map(
         x["Prompt"],
         truncation=True,
         padding="max_length",
-        max_length=args.max_len,
+        max_length=Args.max_len,
         return_tensors="pt",
     ),
     batched=True,
 )
 dataset = dataset.remove_columns(["Prompt"])
 
-first_batch = next(iter(dataset["train"]))
-collated = collator([first_batch])
-
-label_list = list(collated["labels"].numpy())
-
 
 bert = BERT(
     tokenizer.vocab_size,
-    hidden=args.hidden,
-    n_layers=args.layers,
-    attn_heads=args.attn_heads,
-    max_len=args.max_len,
+    hidden=Args.hidden,
+    n_layers=Args.layers,
+    attn_heads=Args.attn_heads,
+    max_len=Args.max_len,
 )
 
-if args.use_wandb:
-    wandb.init(config=args, project="superprompt")
-    wandb.watch(bert, log_freq=args.log_freq)
+if Args.use_wandb:
+    wandb.init(config=Args, project="superprompt")
+    wandb.watch(bert, log_freq=Args.log_freq)
 
 print("Creating BERT Trainer")
 trainer = BERTTrainer(
@@ -84,15 +78,15 @@ trainer = BERTTrainer(
     collator,
     dataset["train"],
     dataset["test"],
-    args.lr,
-    betas=(args.adam_beta1, args.adam_beta2),
-    weight_decay=args.adam_weight_decay,
-    max_len=args.max_len,
-    log_freq=args.log_freq,
-    valid_freq=args.valid_freq,
-    batch_size=args.batch_size,
-    use_wandb=args.use_wandb,
+    Args.lr,
+    betas=(Args.adam_beta1, Args.adam_beta2),
+    weight_decay=Args.adam_weight_decay,
+    max_len=Args.max_len,
+    log_freq=Args.log_freq,
+    valid_freq=Args.valid_freq,
+    batch_size=Args.batch_size,
+    use_wandb=Args.use_wandb,
 )
 
-for epoch in range(args.epochs):
+for epoch in range(Args.epochs):
     trainer.train(epoch)

@@ -2,7 +2,7 @@ from argparse import Namespace
 import torch
 import torch.nn as nn
 from seq2seq_model import Encoder, Decoder, Seq2Seq
-from utils import get_available_device
+from utils import get_available_device, should_use_wandb, sample_prompts
 from torch.optim import AdamW
 import time
 import math
@@ -12,6 +12,8 @@ from transformers import (
     DataCollatorForSeq2Seq,
 )
 import torch.utils.data as data
+import random
+import wandb
 
 
 class Args(Namespace):
@@ -27,6 +29,8 @@ class Args(Namespace):
     clip = 1
     max_length = 128
     batch_size = 128
+    use_wandb = should_use_wandb()
+    log_freq = 32
 
 
 dataset = load_dataset(
@@ -46,6 +50,7 @@ dataset = dataset.map(
         return_tensors="pt",
     ),
     batched=True,
+    batch_size=Args.batch_size,
 )
 input_dim_size = tokenizer.vocab_size
 
@@ -72,7 +77,7 @@ optimizer = AdamW(model.parameters())
 criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.mask_token_id)
 
 
-def train(model, iterator, optimizer, criterion, clip):
+def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
     model.train()
 
     epoch_loss = 0
@@ -124,7 +129,7 @@ def train(model, iterator, optimizer, criterion, clip):
     return epoch_loss / len(iterator)
 
 
-def evaluate(model, iterator, criterion):
+def evaluate(model: Seq2Seq, iterator, criterion):
     model.eval()
 
     epoch_loss = 0
@@ -154,6 +159,24 @@ def evaluate(model, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
+def validate(model: Seq2Seq):
+    model.eval()
+    with torch.no_grad():
+        prompt = random.choice(sample_prompts)
+        src = tokenizer(
+            prompt,
+            truncation=True,
+            padding="max_length",
+            max_length=Args.max_length,
+            return_tensors="pt",
+        )["input_ids"]
+        src = src.transpose(1, 0).to(device)
+        output = model(src, None, 0)
+        output = output.argmax(dim=-1)
+        output = tokenizer.decode(output)
+        return output
+
+
 def epoch_time(start_time, end_time):
     elapsed_time = end_time - start_time
     elapsed_mins = int(elapsed_time / 60)
@@ -163,21 +186,29 @@ def epoch_time(start_time, end_time):
 
 best_valid_loss = float("inf")
 
+if Args.use_wandb:
+    wandb.init(config=Args, project="superprompt-seq2seq-rnn")
+    wandb.watch(model, log_freq=Args.log_freq)
 
 for epoch in range(Args.n_epochs):
     start_time = time.time()
 
     train_loss = train(model, dataset["train"], optimizer, criterion, Args.clip)
-    valid_loss = evaluate(model, dataset["test"], criterion)
+    print("train_loss", train_loss)
+    eval_loss = evaluate(model, dataset["test"], criterion)
+    print("eval_loss", eval_loss)
+    valid_output = validate(model)
+    print("valid_output", valid_output)
+    
 
     end_time = time.time()
 
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-    if valid_loss < best_valid_loss:
-        best_valid_loss = valid_loss
+    if eval_loss < best_valid_loss:
+        best_valid_loss = eval_loss
         torch.save(model.state_dict(), "tut1-model.pt")
 
     print(f"Epoch: {epoch+1:02} | Time: {epoch_mins}m {epoch_secs}s")
     print(f"\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}")
-    print(f"\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}")
+    print(f"\t Val. Loss: {eval_loss:.3f} |  Val. PPL: {math.exp(eval_loss):7.3f}")
