@@ -84,16 +84,16 @@ def train(model, iterator, optimizer, criterion, clip):
             padding="max_length",
             max_length=Args.max_length,
             return_tensors="pt",
-        )['input_ids']
+        )["input_ids"]
         trg = tokenizer(
             batch["prompt"],
             truncation=True,
             padding="max_length",
             max_length=Args.max_length,
             return_tensors="pt",
-        )['input_ids']
-        src = src.to(device)
-        trg = trg.to(device)
+        )["input_ids"]
+        src = src.transpose(1, 0).to(device)
+        trg = trg.transpose(1, 0).to(device)
 
         optimizer.zero_grad()
 
@@ -111,7 +111,7 @@ def train(model, iterator, optimizer, criterion, clip):
         # output = [(trg len - 1) * batch size, output dim]
 
         loss = criterion(output, trg)
-        loss.requires_grad = True
+        # loss.requires_grad = True
 
         loss.backward()
 
