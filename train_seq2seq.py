@@ -35,7 +35,6 @@ class Args(Namespace):
 
 dataset = load_dataset(
     "roborovski/diffusiondb-masked-no-descriptors",
-    streaming=True,
 )
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
@@ -118,6 +117,7 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
         loss = criterion(output, trg)
         # loss.requires_grad = True
         print(loss.item(), i, flush=True)
+        wandb.log({"loss": loss.item()})
 
         loss.backward()
 
@@ -200,7 +200,6 @@ for epoch in range(Args.n_epochs):
     print("eval_loss", eval_loss)
     valid_output = validate(model)
     print("valid_output", valid_output)
-    
 
     end_time = time.time()
 
