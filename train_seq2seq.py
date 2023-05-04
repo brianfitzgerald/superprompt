@@ -47,12 +47,13 @@ dataset = dataset.map(
     ),
     batched=True,
 )
+input_dim_size = tokenizer.vocab_size
 
 enc = Encoder(
-    Args.input_dim, Args.enc_emb_dim, Args.hid_dim, Args.n_layers, Args.enc_dropout
+    input_dim_size, Args.enc_emb_dim, Args.hid_dim, Args.n_layers, Args.enc_dropout
 )
 dec = Decoder(
-    Args.output_dim, Args.dec_emb_dim, Args.hid_dim, Args.n_layers, Args.dec_dropout
+    input_dim_size, Args.dec_emb_dim, Args.hid_dim, Args.n_layers, Args.dec_dropout
 )
 
 device = get_available_device()
