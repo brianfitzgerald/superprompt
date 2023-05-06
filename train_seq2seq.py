@@ -31,10 +31,12 @@ class Args(Namespace):
     batch_size = 128
     use_wandb = should_use_wandb()
     log_freq = 16
+    valid_freq = 128
 
 
 dataset = load_dataset(
     "roborovski/diffusiondb-masked-no-descriptors",
+    streaming=True,
 )
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
@@ -120,6 +122,16 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
         if i % Args.log_freq == 0 and Args.use_wandb:
             wandb.log({"loss": loss.item()})
 
+        if i % Args.valid_freq == 0:
+            prompt = random.choice(sample_prompts)
+            valid_output = validate(model, prompt)
+            print("valid_output", valid_output)
+            valid_table_data.append([prompt, valid_output])
+            sample_table = wandb.Table(
+                columns=["prompt", "output"], data=valid_table_data
+            )
+            wandb.log({"sample": sample_table})
+
         loss.backward()
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
@@ -161,10 +173,9 @@ def evaluate(model: Seq2Seq, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
-def validate(model: Seq2Seq):
+def validate(model: Seq2Seq, prompt: str):
     model.eval()
     with torch.no_grad():
-        prompt = random.choice(sample_prompts)
         src = tokenizer(
             prompt,
             truncation=True,
@@ -191,6 +202,7 @@ best_valid_loss = float("inf")
 if Args.use_wandb:
     wandb.init(config=Args, project="superprompt-seq2seq-rnn")
     wandb.watch(model, log_freq=Args.log_freq)
+    valid_table_data = []
 
 for epoch in range(Args.n_epochs):
     start_time = time.time()
@@ -199,7 +211,8 @@ for epoch in range(Args.n_epochs):
     print("train_loss", train_loss)
     eval_loss = evaluate(model, dataset["test"], criterion)
     print("eval_loss", eval_loss)
-    valid_output = validate(model)
+    prompt_idx = epoch % len(sample_prompts)
+    valid_output = validate(model, sample_prompts[prompt_idx])
     print("valid_output", valid_output)
 
     end_time = time.time()
