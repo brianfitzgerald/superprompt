@@ -36,7 +36,6 @@ class Args(Namespace):
 
 dataset = load_dataset(
     "roborovski/diffusiondb-masked-no-descriptors",
-    streaming=True,
 )
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
