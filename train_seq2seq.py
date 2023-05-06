@@ -1,7 +1,9 @@
 from argparse import Namespace
+from enum import IntEnum
 import torch
 import torch.nn as nn
 from utils import get_available_device, should_use_wandb, sample_prompts
+
 get_available_device()
 from seq2seq_model import Encoder, Decoder, Seq2Seq
 from torch.optim import AdamW
@@ -15,6 +17,11 @@ from transformers import (
 import torch.utils.data as data
 import random
 import wandb
+
+
+class Task(IntEnum):
+    DIFFUSION = 1
+    TRANSLATE = 2
 
 
 class Args(Namespace):
@@ -33,28 +40,41 @@ class Args(Namespace):
     use_wandb = should_use_wandb()
     log_freq = 16
     valid_freq = 128
+    task = Task.DIFFUSION
 
 
-dataset = load_dataset(
-    "roborovski/diffusiondb-masked-no-descriptors",
-    streaming=True
-)
+def tokenize_dataset(x):
+    return (
+        tokenizer(
+            x["prompt"],
+            truncation=True,
+            padding="max_length",
+            max_length=Args.max_length,
+            return_tensors="pt",
+            eos_token="<eos>",  
+            bos_token="<bos>",
+        ),
+    )
+
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
-collator = DataCollatorForSeq2Seq(tokenizer=tokenizer)
-dataset = dataset.map(
-    lambda x: tokenizer(
-        x["prompt"],
-        truncation=True,
-        padding="max_length",
-        max_length=Args.max_length,
-        return_tensors="pt",
-    ),
-    batched=True,
-    batch_size=Args.batch_size,
-)
 input_dim_size = tokenizer.vocab_size
+
+if Args.task == Task.DIFFUSION:
+    dataset = load_dataset(
+        "roborovski/diffusiondb-masked-no-descriptors", streaming=True
+    )
+    collator = DataCollatorForSeq2Seq(tokenizer=tokenizer)
+    dataset = dataset.map(
+        tokenize_dataset,
+        batched=True,
+        batch_size=Args.batch_size,
+    )
+elif Args.task == Task.TRANSLATE:
+    dataset = load_dataset("bentrevett/multi30k", streaming=True)
+    dataset = dataset.map(tokenize_dataset, batched=True, batch_size=Args.batch_size)
+
 
 enc = Encoder(
     input_dim_size, Args.enc_emb_dim, Args.hid_dim, Args.n_layers, Args.enc_dropout
