@@ -6,7 +6,7 @@ from utils import get_available_device, should_use_wandb, sample_prompts
 
 get_available_device()
 from seq2seq_model import Encoder, Decoder, Seq2Seq
-from torch.optim import AdamW
+from torch.optim import Adam
 import time
 import math
 from datasets import load_dataset
@@ -40,21 +40,18 @@ class Args(Namespace):
     use_wandb = should_use_wandb()
     log_freq = 16
     valid_freq = 128
-    task = Task.DIFFUSION
+    task = Task.TRANSLATE
 
 
-def tokenize_dataset(x):
-    return (
-        tokenizer(
-            x["prompt"],
-            truncation=True,
-            padding="max_length",
-            max_length=Args.max_length,
-            return_tensors="pt",
-            eos_token="<eos>",  
-            bos_token="<bos>",
-        ),
+def tokenize_with_args(x):
+    return tokenizer(
+        x,
+        truncation=True,
+        padding="max_length",
+        max_length=Args.max_length,
+        return_tensors="pt",
     )
+
 
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
@@ -66,14 +63,8 @@ if Args.task == Task.DIFFUSION:
         "roborovski/diffusiondb-masked-no-descriptors", streaming=True
     )
     collator = DataCollatorForSeq2Seq(tokenizer=tokenizer)
-    dataset = dataset.map(
-        tokenize_dataset,
-        batched=True,
-        batch_size=Args.batch_size,
-    )
 elif Args.task == Task.TRANSLATE:
     dataset = load_dataset("bentrevett/multi30k", streaming=True)
-    dataset = dataset.map(tokenize_dataset, batched=True, batch_size=Args.batch_size)
 
 
 enc = Encoder(
@@ -94,9 +85,9 @@ def init_weights(m):
 
 model.apply(init_weights)
 
-optimizer = AdamW(model.parameters())
+optimizer = Adam(model.parameters())
 
-criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.mask_token_id)
+criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
 
 
 def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
@@ -105,20 +96,13 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
     epoch_loss = 0
 
     for i, batch in enumerate(iterator):
-        src = tokenizer(
-            batch["masked"],
-            truncation=True,
-            padding="max_length",
-            max_length=Args.max_length,
-            return_tensors="pt",
-        )["input_ids"]
-        trg = tokenizer(
-            batch["prompt"],
-            truncation=True,
-            padding="max_length",
-            max_length=Args.max_length,
-            return_tensors="pt",
-        )["input_ids"]
+        if Args.task == Task.DIFFUSION:
+            src_field, trg_field = "masked", "prompt"
+        elif Args.task == Task.TRANSLATE:
+            src_field, trg_field = "de", "en"
+        src = tokenize_with_args(batch[src_field])["input_ids"]
+        trg = tokenize_with_args(batch[trg_field])["input_ids"]
+
         src = src.transpose(1, 0).to(device)
         trg = trg.transpose(1, 0).to(device)
 
