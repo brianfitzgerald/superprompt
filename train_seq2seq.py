@@ -35,7 +35,7 @@ class Args(Namespace):
     n_epochs = 10
     clip = 1
     max_length = 128
-    batch_size = 128
+    batch_size = 256
     use_wandb = should_use_wandb()
     log_freq = 16
     valid_freq = 128
@@ -221,6 +221,8 @@ for epoch in range(Args.n_epochs):
     train_loss = train(model, dataset["train"], optimizer, criterion, Args.clip)
     print("train_loss", train_loss)
     eval_loss = evaluate(model, dataset["test"], criterion)
+    if Args.use_wandb:
+        wandb.log({"train_loss": train_loss, "eval_loss": eval_loss, "epoch": epoch, "lr": optimizer.param_groups[0]["lr"], "PPL": math.exp(train_loss)})
     print("eval_loss", eval_loss)
     prompt_idx = epoch % len(sample_prompts)
     valid_output = validate(model, sample_prompts[prompt_idx])
