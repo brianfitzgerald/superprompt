@@ -1,8 +1,9 @@
 from argparse import Namespace
 import torch
 import torch.nn as nn
-from seq2seq_model import Encoder, Decoder, Seq2Seq
 from utils import get_available_device, should_use_wandb, sample_prompts
+get_available_device()
+from seq2seq_model import Encoder, Decoder, Seq2Seq
 from torch.optim import AdamW
 import time
 import math
@@ -36,6 +37,7 @@ class Args(Namespace):
 
 dataset = load_dataset(
     "roborovski/diffusiondb-masked-no-descriptors",
+    streaming=True
 )
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
@@ -117,7 +119,7 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
 
         loss = criterion(output, trg)
         # loss.requires_grad = True
-        print(loss.item(), i, flush=True)
+        print(f"iteration {i}: {loss.item()}")
         if i % Args.log_freq == 0 and Args.use_wandb:
             wandb.log({"loss": loss.item()})
 
@@ -125,11 +127,12 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
             prompt = random.choice(sample_prompts)
             valid_output = validate(model, prompt)
             print("valid_output", valid_output)
-            valid_table_data.append([prompt, valid_output])
-            sample_table = wandb.Table(
-                columns=["prompt", "output"], data=valid_table_data
-            )
-            wandb.log({"sample": sample_table})
+            if Args.use_wandb:
+                valid_table_data.append([prompt, valid_output])
+                sample_table = wandb.Table(
+                    columns=["prompt", "output"], data=valid_table_data
+                )
+                wandb.log({"sample": sample_table})
 
         loss.backward()
 
@@ -183,9 +186,12 @@ def validate(model: Seq2Seq, prompt: str):
             return_tensors="pt",
         )["input_ids"]
         src = src.transpose(1, 0).to(device)
-        output = model(src, None, 0)
+        # Create a target tensor with batch size 1 and length max_length with all tokens masked
+        trg = torch.zeros((Args.max_length, 1)).long().to(device)
+        output = model(src, trg, 0)
         output = output.argmax(dim=-1)
-        output = tokenizer.decode(output)
+        output_ls = output.squeeze().tolist()
+        output = tokenizer.decode(output_ls)
         return output
 
 

@@ -5,10 +5,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Run Training",
+            "name": "Train BERT",
             "type": "python",
             "request": "launch",
-            "program": "train.py",
+            "program": "train_bert.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Train Seq2Seq",
+            "type": "python",
+            "request": "launch",
+            "program": "train_seq2seq.py",
             "console": "integratedTerminal",
             "justMyCode": true
         }

@@ -100,7 +100,7 @@ class Seq2Seq(nn.Module):
             encoder.n_layers == decoder.n_layers
         ), "Encoder and decoder must have equal number of layers!"
 
-    def forward(self, src, trg, teacher_forcing_ratio=0.5):
+    def forward(self, src: torch.Tensor, trg: torch.Tensor, teacher_forcing_ratio=0.5):
         # src = [src len, batch size]
         # trg = [trg len, batch size]
         # teacher_forcing_ratio is probability to use teacher forcing
