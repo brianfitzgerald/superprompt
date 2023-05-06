@@ -5,7 +5,7 @@ import torch.nn as nn
 from utils import get_available_device, should_use_wandb, sample_prompts
 
 get_available_device()
-from seq2seq_model import Encoder, Decoder, Seq2Seq
+from seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
 from torch.optim import Adam
 import time
 import math
@@ -29,7 +29,8 @@ class Args(Namespace):
     output_dim = 128
     enc_emb_dim = 256
     dec_emb_dim = 256
-    hid_dim = 512
+    enc_hid_dim = 512
+    dec_hid_dim = 512
     enc_dropout = 0.5
     dec_dropout = 0.5
     n_epochs = 10
@@ -51,6 +52,7 @@ def tokenize_with_args(x):
         return_tensors="pt",
     )
 
+
 print("Args: ", Args)
 print("Task: ", Args.task)
 
@@ -68,11 +70,21 @@ elif Args.task == Task.TRANSLATE:
     dataset = load_dataset("bentrevett/multi30k", streaming=True)
 
 
+attn = Attention(Args.enc_hid_dim, Args.dec_hid_dim)
 enc = Encoder(
-    input_dim_size, Args.enc_emb_dim, Args.hid_dim, Args.enc_dropout
+    input_dim_size,
+    Args.enc_emb_dim,
+    Args.enc_hid_dim,
+    Args.dec_hid_dim,
+    Args.enc_dropout,
 )
 dec = Decoder(
-    input_dim_size, Args.dec_emb_dim, Args.hid_dim, Args.dec_dropout
+    input_dim_size,
+    Args.dec_emb_dim,
+    Args.enc_hid_dim,
+    Args.dec_hid_dim,
+    Args.dec_dropout,
+    attn,
 )
 
 device = get_available_device()
@@ -222,7 +234,15 @@ for epoch in range(Args.n_epochs):
     print("train_loss", train_loss)
     eval_loss = evaluate(model, dataset["test"], criterion)
     if Args.use_wandb:
-        wandb.log({"train_loss": train_loss, "eval_loss": eval_loss, "epoch": epoch, "lr": optimizer.param_groups[0]["lr"], "PPL": math.exp(train_loss)})
+        wandb.log(
+            {
+                "train_loss": train_loss,
+                "eval_loss": eval_loss,
+                "epoch": epoch,
+                "lr": optimizer.param_groups[0]["lr"],
+                "PPL": math.exp(train_loss),
+            }
+        )
     print("eval_loss", eval_loss)
     prompt_idx = epoch % len(sample_prompts)
     valid_output = validate(model, sample_prompts[prompt_idx])
