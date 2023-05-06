@@ -126,6 +126,7 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
         if i % Args.valid_freq == 0:
             prompt = random.choice(sample_prompts)
             valid_output = validate(model, prompt)
+            model.train()
             print("valid_output", valid_output)
             if Args.use_wandb:
                 valid_table_data.append([prompt, valid_output])
