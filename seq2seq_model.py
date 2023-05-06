@@ -4,15 +4,14 @@ import random
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_dim, emb_dim, hid_dim, n_layers, dropout):
+    def __init__(self, input_dim, emb_dim, hid_dim, dropout):
         super().__init__()
 
         self.hid_dim = hid_dim
-        self.n_layers = n_layers
 
         self.embedding = nn.Embedding(input_dim, emb_dim)
 
-        self.rnn = nn.LSTM(emb_dim, hid_dim, n_layers, dropout=dropout)
+        self.rnn = nn.GRU(emb_dim, hid_dim)
 
         self.dropout = nn.Dropout(dropout)
 
@@ -23,7 +22,7 @@ class Encoder(nn.Module):
 
         # embedded = [src len, batch size, emb dim]
 
-        outputs, (hidden, cell) = self.rnn(embedded)
+        outputs, hidden = self.rnn(embedded)
 
         # outputs = [src len, batch size, hid dim * n directions]
         # hidden = [n layers * n directions, batch size, hid dim]
@@ -31,26 +30,26 @@ class Encoder(nn.Module):
 
         # outputs are always from the top hidden layer
 
-        return hidden, cell
+        return hidden
 
 
 class Decoder(nn.Module):
-    def __init__(self, output_dim, emb_dim, hid_dim, n_layers, dropout):
+    def __init__(self, output_dim, emb_dim, hid_dim, dropout):
         super().__init__()
 
-        self.output_dim = output_dim
         self.hid_dim = hid_dim
-        self.n_layers = n_layers
+        self.output_dim = output_dim
 
         self.embedding = nn.Embedding(output_dim, emb_dim)
 
-        self.rnn = nn.LSTM(emb_dim, hid_dim, n_layers, dropout=dropout)
+        # Add context vector to GRU
+        self.rnn = nn.GRU(emb_dim + hid_dim, hid_dim)
 
-        self.fc_out = nn.Linear(hid_dim, output_dim)
+        self.fc_out = nn.Linear(emb_dim + hid_dim * 2, output_dim)
 
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, input, hidden, cell):
+    def forward(self, input, hidden, context):
         # input = [batch size]
         # hidden = [n layers * n directions, batch size, hid dim]
         # cell = [n layers * n directions, batch size, hid dim]
@@ -67,22 +66,19 @@ class Decoder(nn.Module):
 
         # embedded = [1, batch size, emb dim]
 
-        output, (hidden, cell) = self.rnn(embedded, (hidden, cell))
+        emb_con = torch.cat((embedded, context), dim=2)
 
-        # output = [seq len, batch size, hid dim * n directions]
-        # hidden = [n layers * n directions, batch size, hid dim]
-        # cell = [n layers * n directions, batch size, hid dim]
-
-        # seq len and n directions will always be 1 in the decoder, therefore:
-        # output = [1, batch size, hid dim]
-        # hidden = [n layers, batch size, hid dim]
-        # cell = [n layers, batch size, hid dim]
-
-        prediction = self.fc_out(output.squeeze(0))
+        output, hidden = self.rnn(emb_con, hidden)
 
         # prediction = [batch size, output dim]
 
-        return prediction, hidden, cell
+        output = torch.cat(
+            (embedded.squeeze(0), hidden.squeeze(0), context.squeeze(0)), dim=1
+        )
+
+        prediction = self.fc_out(output)
+
+        return prediction, hidden
 
 
 class Seq2Seq(nn.Module):
@@ -96,9 +92,6 @@ class Seq2Seq(nn.Module):
         assert (
             encoder.hid_dim == decoder.hid_dim
         ), "Hidden dimensions of encoder and decoder must be equal!"
-        assert (
-            encoder.n_layers == decoder.n_layers
-        ), "Encoder and decoder must have equal number of layers!"
 
     def forward(self, src: torch.Tensor, trg: torch.Tensor, teacher_forcing_ratio=0.5):
         # src = [src len, batch size]
@@ -114,7 +107,9 @@ class Seq2Seq(nn.Module):
         outputs = torch.zeros(trg_len, batch_size, trg_vocab_size).to(self.device)
 
         # last hidden state of the encoder is used as the initial hidden state of the decoder
-        hidden, cell = self.encoder(src)
+        context = self.encoder(src)
+
+        hidden = context
 
         # first input to the decoder is the <sos> tokens
         input = trg[0, :]
@@ -122,7 +117,7 @@ class Seq2Seq(nn.Module):
         for t in range(1, trg_len):
             # insert input token embedding, previous hidden and previous cell states
             # receive output tensor (predictions) and new hidden and cell states
-            output, hidden, cell = self.decoder(input, hidden, cell)
+            output, hidden = self.decoder(input, hidden, context)
 
             # place predictions in a tensor holding predictions for each token
             outputs[t] = output

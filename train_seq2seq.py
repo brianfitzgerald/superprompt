@@ -30,7 +30,6 @@ class Args(Namespace):
     enc_emb_dim = 256
     dec_emb_dim = 256
     hid_dim = 512
-    n_layers = 2
     enc_dropout = 0.5
     dec_dropout = 0.5
     n_epochs = 10
@@ -52,6 +51,8 @@ def tokenize_with_args(x):
         return_tensors="pt",
     )
 
+print("Args: ", Args)
+print("Task: ", Args.task)
 
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
@@ -68,10 +69,10 @@ elif Args.task == Task.TRANSLATE:
 
 
 enc = Encoder(
-    input_dim_size, Args.enc_emb_dim, Args.hid_dim, Args.n_layers, Args.enc_dropout
+    input_dim_size, Args.enc_emb_dim, Args.hid_dim, Args.enc_dropout
 )
 dec = Decoder(
-    input_dim_size, Args.dec_emb_dim, Args.hid_dim, Args.n_layers, Args.dec_dropout
+    input_dim_size, Args.dec_emb_dim, Args.hid_dim, Args.dec_dropout
 )
 
 device = get_available_device()
