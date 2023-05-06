@@ -93,7 +93,11 @@ model = Seq2Seq(enc, dec, device).to(device)
 
 def init_weights(m):
     for name, param in m.named_parameters():
-        nn.init.uniform_(param.data, -0.08, 0.08)
+        if 'weight' in name:
+            nn.init.normal_(param.data, mean=0, std=0.01)
+        else:
+            nn.init.constant_(param.data, 0)
+
 
 
 model.apply(init_weights)
