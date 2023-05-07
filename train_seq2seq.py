@@ -43,6 +43,7 @@ def tokenize_with_args(x):
     return tokenizer(
         x,
         truncation=True,
+        return_length=True,
         padding="max_length",
         max_length=Args.max_length,
         return_tensors="pt",
@@ -84,7 +85,7 @@ dec = Decoder(
 )
 
 device = get_available_device()
-model = Seq2Seq(enc, dec, device).to(device)
+model = Seq2Seq(enc, dec, tokenizer.pad_token_id, device).to(device)
 
 print("Device: ", device)
 
@@ -113,15 +114,15 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
             src_field, trg_field = "masked", "prompt"
         elif Args.task == Task.TRANSLATE:
             src_field, trg_field = "de", "en"
-        src = tokenize_with_args(batch[src_field])["input_ids"]
-        trg = tokenize_with_args(batch[trg_field])["input_ids"]
+        src = tokenize_with_args(batch[src_field])
+        trg = tokenize_with_args(batch[trg_field])
 
-        src = src.transpose(1, 0).to(device)
-        trg = trg.transpose(1, 0).to(device)
+        src_input_ids = src["input_ids"].transpose(1, 0).to(device)
+        trg_input_ids = trg["input_ids"].transpose(1, 0).to(device)
 
         optimizer.zero_grad()
 
-        output = model(src, trg)
+        output = model(src_input_ids, src["length"], trg_input_ids)
 
         # trg = [trg len, batch size]
         # output = [trg len, batch size, output dim]
@@ -129,12 +130,12 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
         output_dim = output.shape[-1]
 
         output = output[1:].view(-1, output_dim)
-        trg = trg[1:].view(-1)
+        trg_input_ids = trg_input_ids[1:].view(-1)
 
         # trg = [(trg len - 1) * batch size]
         # output = [(trg len - 1) * batch size, output dim]
 
-        loss = criterion(output, trg)
+        loss = criterion(output, trg_input_ids)
         # loss.requires_grad = True
         print(f"iteration {i}: {loss.item()}")
         if i % Args.log_freq == 0 and Args.use_wandb:
@@ -196,12 +197,14 @@ def evaluate(model: Seq2Seq, iterator, criterion):
 def validate(model: Seq2Seq, masked: str, prompt: str):
     model.eval()
     with torch.no_grad():
-        src = tokenize_with_args(masked)["input_ids"]
+        src = tokenize_with_args(masked)
+        src_len = src["length"]
+        src = src["input_ids"]
         trg = tokenize_with_args(prompt)["input_ids"]
         src = src.transpose(1, 0).to(device)
         trg = trg.transpose(1, 0).to(device)
         # Create a target tensor with batch size 1 and length max_length with all tokens masked
-        output = model(src, trg, 0)
+        output = model(src, src_len, trg, 0)
         output = output.argmax(dim=-1)
         output_ls = output.squeeze().tolist()
         output = tokenizer.decode(output_ls)

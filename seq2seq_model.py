@@ -16,14 +16,18 @@ class Encoder(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, src):
+    def forward(self, src, src_len):
         # src = [src len, batch size]
 
         embedded = self.dropout(self.embedding(src))
 
+        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, src_len.to('cpu'))
+
         # embedded = [src len, batch size, emb dim]
 
-        outputs, hidden = self.rnn(embedded)
+        packed_outputs, hidden = self.rnn(packed_embedded)
+
+        outputs, _ = nn.utils.rnn.pad_packed_sequence(packed_outputs)
 
         # hidden [-2, :, : ] is the last of the forwards RNN
         # hidden [-1, :, : ] is the last of the backwards RNN
@@ -45,7 +49,7 @@ class Attention(nn.Module):
         self.attn = nn.Linear((enc_hid_dim * 2) + dec_hid_dim, dec_hid_dim)
         self.v = nn.Linear(dec_hid_dim, 1, bias=False)
 
-    def forward(self, hidden, encoder_outputs):
+    def forward(self, hidden, encoder_outputs, mask):
         batch_size = encoder_outputs.shape[1]
         src_len = encoder_outputs.shape[0]
 
@@ -59,6 +63,8 @@ class Attention(nn.Module):
         attention = self.v(energy).squeeze(2)
 
         # attention= [batch size, src len]
+
+        attention = attention.masked_fill(mask == 0, -1e10)
 
         return F.softmax(attention, dim=1)
 
@@ -80,7 +86,7 @@ class Decoder(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, input, hidden, encoder_outputs):
+    def forward(self, input, hidden, encoder_outputs, mask):
         # input = [batch size]
         # hidden = [n layers * n directions, batch size, hid dim]
         # cell = [n layers * n directions, batch size, hid dim]
@@ -97,7 +103,7 @@ class Decoder(nn.Module):
 
         # embedded = [1, batch size, emb dim]
 
-        a = self.attention(hidden, encoder_outputs)
+        a = self.attention(hidden, encoder_outputs, mask)
 
         a = a.unsqueeze(1)
 
@@ -123,18 +129,23 @@ class Decoder(nn.Module):
 
         # prediction = [batch size, output dim]
 
-        return prediction, hidden.squeeze(0)
+        return prediction, hidden.squeeze(0), a.squeeze(1)
 
 
 class Seq2Seq(nn.Module):
-    def __init__(self, encoder, decoder, device):
+    def __init__(self, encoder, decoder, src_pad_idx, device):
         super().__init__()
 
-        self.encoder = encoder
-        self.decoder = decoder
+        self.encoder: Encoder = encoder
+        self.decoder: Decoder = decoder
         self.device = device
+        self.src_pad_idx = src_pad_idx
 
-    def forward(self, src, trg, teacher_forcing_ratio=0.5):
+    def create_mask(self, src):
+        mask = (src != self.src_pad_idx).permute(1, 0)
+        return mask
+
+    def forward(self, src, src_len, trg, teacher_forcing_ratio=0.5):
         # src = [src len, batch size]
         # trg = [trg len, batch size]
         # teacher_forcing_ratio is probability to use teacher forcing
@@ -149,15 +160,17 @@ class Seq2Seq(nn.Module):
 
         # encoder_outputs is all hidden states of the input sequence, back and forwards
         # hidden is the final forward and backward hidden states, passed through a linear layer
-        encoder_outputs, hidden = self.encoder(src)
+        encoder_outputs, hidden = self.encoder(src, src_len)
 
         # first input to the decoder is the <sos> tokens
         input = trg[0, :]
 
+        mask = self.create_mask(src)
+
         for t in range(1, trg_len):
             # insert input token embedding, previous hidden state and all encoder hidden states
             # receive output tensor (predictions) and new hidden state
-            output, hidden = self.decoder(input, hidden, encoder_outputs)
+            output, hidden, _ = self.decoder(input, hidden, encoder_outputs, mask)
 
             # place predictions in a tensor holding predictions for each token
             outputs[t] = output
