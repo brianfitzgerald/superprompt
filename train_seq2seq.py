@@ -52,17 +52,31 @@ class Args(Namespace):
     task = Task.TRANSLATE
 
 
-def tokenize_batch(x):
-    x = [f"[BOS] {s} [EOS]" for s in x]
-    tokenized_batch = tokenizer(
-        x,
+def tokenize_batch(batch):
+    if Args.task == Task.DIFFUSION:
+        src_field, trg_field = "masked", "prompt"
+    elif Args.task == Task.TRANSLATE:
+        src_field, trg_field = "de", "en"
+    src = [f"[BOS] {s} [EOS]" for s in batch[src_field]]
+    src = tokenizer(
+        batch[src_field],
         truncation=True,
         return_length=True,
         padding="max_length",
         max_length=Args.max_length,
         return_tensors="pt",
     )
-    return tokenized_batch
+    
+    trg = [f"[BOS] {s} [EOS]" for s in batch[trg_field]]
+    trg = tokenizer(
+        batch[trg_field],
+        truncation=True,
+        return_length=True,
+        padding="max_length",
+        max_length=Args.max_length,
+        return_tensors="pt",
+    )
+    return {"src_input_ids": src["input_ids"], "src_len": src["length"], "trg_input_ids": trg["input_ids"]}
 
 
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
@@ -76,10 +90,16 @@ print("Task: ", Args.task)
 
 if Args.task == Task.DIFFUSION:
     dataset = load_dataset(
-        "roborovski/diffusiondb-masked-no-descriptors", streaming=True
+        "roborovski/diffusiondb-masked-no-descriptors"
     )
 elif Args.task == Task.TRANSLATE:
-    dataset = load_dataset("bentrevett/multi30k", streaming=True)
+    dataset = load_dataset("bentrevett/multi30k")
+    dataset["train"] = dataset["train"].map(
+        tokenize_batch, batched=True, batch_size=Args.batch_size
+    )
+    dataset["test"] = dataset["test"].map(
+        tokenize_batch, batched=True, batch_size=Args.batch_size
+    )
 
 
 input_dim_size = tokenizer.vocab_size
@@ -126,20 +146,15 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
 
     epoch_loss = 0
 
-    for i, batch in enumerate(iterator):
-        if Args.task == Task.DIFFUSION:
-            src_field, trg_field = "masked", "prompt"
-        elif Args.task == Task.TRANSLATE:
-            src_field, trg_field = "de", "en"
-        src = tokenize_batch(batch[src_field])
-        trg = tokenize_batch(batch[trg_field])
-
-        src_input_ids = src["input_ids"].transpose(1, 0).to(device)
-        trg_input_ids = trg["input_ids"].transpose(1, 0).to(device)
+    i = 0
+    for batch in iterator:
+        src_input_ids = batch["src_input_ids"].transpose(1, 0).to(device)
+        trg_input_ids = batch["trg_input_ids"].transpose(1, 0).to(device)
+        src_len = batch["src_len"].to(device)
 
         optimizer.zero_grad()
 
-        output = model(src_input_ids, src["length"], trg_input_ids)
+        output = model(src_input_ids, src_len, trg_input_ids)
 
         # trg = [trg len, batch size]
         # output = [trg len, batch size, output dim]
