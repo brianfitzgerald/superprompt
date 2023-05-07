@@ -2,7 +2,12 @@ from argparse import Namespace
 from enum import IntEnum
 import torch
 import torch.nn as nn
-from utils import get_available_device, should_use_wandb, sample_prompt_pairs
+from utils import (
+    get_available_device,
+    should_use_wandb,
+    sample_prompt_pairs,
+    sample_translate_pairs,
+)
 from seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
 from torch.optim import AdamW
 import time
@@ -14,6 +19,16 @@ from transformers import (
 )
 import random
 import wandb
+import numpy as np
+
+SEED = 1234
+
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed(SEED)
+torch.backends.cudnn.deterministic = True
+
 
 class Task(IntEnum):
     DIFFUSION = 1
@@ -32,15 +47,16 @@ class Args(Namespace):
     n_epochs = 10
     clip = 1
     max_length = 128
-    batch_size = 1024
+    batch_size = 2048
     use_wandb = should_use_wandb()
     log_freq = 4
-    valid_freq = 64
+    valid_freq = 128
     task = Task.TRANSLATE
 
 
-def tokenize_with_args(x):
-    return tokenizer(
+def tokenize_batch(x):
+    x = [f"[BOS] {s} [EOS]" for s in x]
+    tokenized_batch = tokenizer(
         x,
         truncation=True,
         return_length=True,
@@ -48,13 +64,15 @@ def tokenize_with_args(x):
         max_length=Args.max_length,
         return_tensors="pt",
     )
-
+    return tokenized_batch
 
 
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
-input_dim_size = tokenizer.vocab_size
+tokenizer.add_special_tokens(
+    {"pad_token": "[PAD]", "bos_token": "[BOS]", "eos_token": "[EOS]"}
+)
 
 print("Task: ", Args.task)
 
@@ -67,6 +85,7 @@ elif Args.task == Task.TRANSLATE:
     dataset = load_dataset("bentrevett/multi30k", streaming=True)
 
 
+input_dim_size = tokenizer.vocab_size
 attn = Attention(Args.enc_hid_dim, Args.dec_hid_dim)
 enc = Encoder(
     input_dim_size,
@@ -88,6 +107,7 @@ device = get_available_device()
 model = Seq2Seq(enc, dec, tokenizer.pad_token_id, device).to(device)
 
 print("Device: ", device)
+
 
 def init_weights(m):
     for name, param in m.named_parameters():
@@ -114,8 +134,8 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
             src_field, trg_field = "masked", "prompt"
         elif Args.task == Task.TRANSLATE:
             src_field, trg_field = "de", "en"
-        src = tokenize_with_args(batch[src_field])
-        trg = tokenize_with_args(batch[trg_field])
+        src = tokenize_batch(batch[src_field])
+        trg = tokenize_batch(batch[trg_field])
 
         src_input_ids = src["input_ids"].transpose(1, 0).to(device)
         trg_input_ids = trg["input_ids"].transpose(1, 0).to(device)
@@ -142,14 +162,21 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
             wandb.log({"loss": loss.item()})
 
         if i % Args.valid_freq == 0:
-            masked, prompt = random.choice(sample_prompt_pairs)
-            valid_output = validate(model, masked, prompt)
+            if Args.task == Task.DIFFUSION:
+                valid_a, valid_b = sample_prompt_pairs[i % len(sample_prompt_pairs)]
+            elif Args.task == Task.TRANSLATE:
+                valid_a, valid_b = sample_translate_pairs[
+                    i % len(sample_translate_pairs)
+                ]
+            valid_output = validate(model, valid_a, valid_b)
+            print("valid_a: ", valid_a)
+            print("valid_b: ", valid_b)
+            print("valid_output: ", valid_output)
             model.train()
-            print("valid_output", valid_output)
             if Args.use_wandb:
-                valid_table_data.append([prompt, valid_output])
+                valid_table_data.append([valid_a, valid_b, valid_output])
                 sample_table = wandb.Table(
-                    columns=["prompt", "output"], data=valid_table_data
+                    columns=["input", "expected", "output"], data=valid_table_data
                 )
                 wandb.log({"sample": sample_table})
 
@@ -197,10 +224,10 @@ def evaluate(model: Seq2Seq, iterator, criterion):
 def validate(model: Seq2Seq, masked: str, prompt: str):
     model.eval()
     with torch.no_grad():
-        src = tokenize_with_args(masked)
+        src = tokenize_batch(masked)
         src_len = src["length"]
         src = src["input_ids"]
-        trg = tokenize_with_args(prompt)["input_ids"]
+        trg = tokenize_batch(prompt)["input_ids"]
         src = src.transpose(1, 0).to(device)
         trg = trg.transpose(1, 0).to(device)
         # Create a target tensor with batch size 1 and length max_length with all tokens masked
@@ -242,10 +269,6 @@ for epoch in range(Args.n_epochs):
             }
         )
     print("eval_loss", eval_loss)
-    prompt_idx = epoch % len(sample_prompt_pairs)
-    m, p = sample_prompt_pairs[prompt_idx]
-    valid_output = validate(model, m, p)
-    print("valid_output", valid_output)
 
     end_time = time.time()
 

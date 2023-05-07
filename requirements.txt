@@ -4,3 +4,4 @@ transformers
 datasets
 wandb
 evaluate
+numpy

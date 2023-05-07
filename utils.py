@@ -17,7 +17,19 @@ def should_use_wandb():
         return False
     return os.environ.get("USER") == "ubuntu" and platform.system().lower() == "linux"
 
+
 sample_prompt_pairs = [
-    ("portait witch hyper background", "portait of mystical witch, hyper detailed, flowing background, intricate and detailed, trippy, 8 k "),
-    ("painting ghost riders sky sunrise wlop tooth wu charlie russell", "a beautiful painting of ghost riders in the sky, sunrise, by wlop, tooth wu and charlie russell")
+    (
+        "portait witch hyper background",
+        "portait of mystical witch, hyper detailed, flowing background, intricate and detailed, trippy, 8 k ",
+    ),
+    (
+        "painting ghost riders sky sunrise wlop tooth wu charlie russell",
+        "a beautiful painting of ghost riders in the sky, sunrise, by wlop, tooth wu and charlie russell",
+    ),
+]
+
+sample_translate_pairs = [
+    ("Ich bin ein Mann mit einem Pferd", "I am a man with a horse"),
+    ("Ich möchte den Gipfel des Berges sehen", "I wish to see the top of the mountain"),
 ]
