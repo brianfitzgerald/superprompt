@@ -15,11 +15,7 @@ def get_available_device():
 def should_use_wandb():
     return os.environ.get("USER") == "ubuntu" and platform.system().lower() == "linux"
 
-
-sample_prompts = [
-    "a beautiful painting of a dog by nekro, pascal blanche, john harris, greg rutkowski, sin jong hun, moebius, simon stalenhag. in style of cg art. ray tracing. cel shading. hyper detailed. realistic. ue 5. maya. octane render.",
-    "human sculpture of lanky tall alien on a romantic date at italian restaurant with smiling woman, nice restaurant, photography, bokeh",
-    "portrait of barbaric spanish conquistador, symmetrical, by yoichi hatakenaka, studio ghibli and dan mumford",
-    "a small liquid sculpture, corvette, viscous, reflective, digital art",
-    "cyber moai on easter island, digital painting, highly detailed, concept art, trending on artstation, epic composition, sharp focus, flawless render, masterpiece, volumetric lighting",
+sample_prompt_pairs = [
+    ("portait witch hyper background", "portait of mystical witch, hyper detailed, flowing background, intricate and detailed, trippy, 8 k "),
+    ("painting ghost riders sky sunrise wlop tooth wu charlie russell", "a beautiful painting of ghost riders in the sky, sunrise, by wlop, tooth wu and charlie russell")
 ]

@@ -2,7 +2,7 @@ from argparse import Namespace
 from enum import IntEnum
 import torch
 import torch.nn as nn
-from utils import get_available_device, should_use_wandb, sample_prompts
+from utils import get_available_device, should_use_wandb, sample_prompt_pairs
 
 get_available_device()
 from seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
@@ -14,7 +14,6 @@ from transformers import (
     BertTokenizer,
     DataCollatorForSeq2Seq,
 )
-import torch.utils.data as data
 import random
 import wandb
 
@@ -93,11 +92,10 @@ model = Seq2Seq(enc, dec, device).to(device)
 
 def init_weights(m):
     for name, param in m.named_parameters():
-        if 'weight' in name:
+        if "weight" in name:
             nn.init.normal_(param.data, mean=0, std=0.01)
         else:
             nn.init.constant_(param.data, 0)
-
 
 
 model.apply(init_weights)
@@ -145,8 +143,8 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
             wandb.log({"loss": loss.item()})
 
         if i % Args.valid_freq == 0:
-            prompt = random.choice(sample_prompts)
-            valid_output = validate(model, prompt)
+            masked, prompt = random.choice(sample_prompt_pairs)
+            valid_output = validate(model, masked, prompt)
             model.train()
             print("valid_output", valid_output)
             if Args.use_wandb:
@@ -197,19 +195,14 @@ def evaluate(model: Seq2Seq, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
-def validate(model: Seq2Seq, prompt: str):
+def validate(model: Seq2Seq, masked: str, prompt: str):
     model.eval()
     with torch.no_grad():
-        src = tokenizer(
-            prompt,
-            truncation=True,
-            padding="max_length",
-            max_length=Args.max_length,
-            return_tensors="pt",
-        )["input_ids"]
+        src = tokenize_with_args(masked)["input_ids"]
+        trg = tokenize_with_args(prompt)["input_ids"]
         src = src.transpose(1, 0).to(device)
+        trg = trg.transpose(1, 0).to(device)
         # Create a target tensor with batch size 1 and length max_length with all tokens masked
-        trg = torch.zeros((Args.max_length, 1)).long().to(device)
         output = model(src, trg, 0)
         output = output.argmax(dim=-1)
         output_ls = output.squeeze().tolist()
@@ -248,8 +241,9 @@ for epoch in range(Args.n_epochs):
             }
         )
     print("eval_loss", eval_loss)
-    prompt_idx = epoch % len(sample_prompts)
-    valid_output = validate(model, sample_prompts[prompt_idx])
+    prompt_idx = epoch % len(sample_prompt_pairs)
+    m, p = sample_prompt_pairs[prompt_idx]
+    valid_output = validate(model, m, p)
     print("valid_output", valid_output)
 
     end_time = time.time()
