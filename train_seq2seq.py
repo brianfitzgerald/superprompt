@@ -207,17 +207,19 @@ def train(model: Seq2Seq, dataset: Dataset, optimizer, criterion, clip):
     return epoch_loss / len(dataset)
 
 
-def evaluate(model: Seq2Seq, iterator, criterion):
+def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
     model.eval()
 
     epoch_loss = 0
+    loader = DataLoader(dataset, batch_size=Args.batch_size, shuffle=True)
 
     with torch.no_grad():
-        for i, batch in enumerate(iterator):
-            src = batch.src
-            trg = batch.trg
+        for i, batch in enumerate(loader):
+            src_input_ids = torch.stack(batch["src_input_ids"]).to(device)
+            trg_input_ids = torch.stack(batch["trg_input_ids"]).to(device)
+            src_len = batch["src_len"].to(device)
 
-            output = model(src, trg, 0)  # turn off teacher forcing
+            output = model(src_input_ids, src_len, trg_input_ids)
 
             # trg = [trg len, batch size]
             # output = [trg len, batch size, output dim]
@@ -234,7 +236,7 @@ def evaluate(model: Seq2Seq, iterator, criterion):
 
             epoch_loss += loss.item()
 
-    return epoch_loss / len(iterator)
+    return epoch_loss / len(dataset)
 
 
 def validate(model: Seq2Seq, masked: str, prompt: str):
