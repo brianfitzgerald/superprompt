@@ -3,10 +3,8 @@ from enum import IntEnum
 import torch
 import torch.nn as nn
 from utils import get_available_device, should_use_wandb, sample_prompt_pairs
-
-get_available_device()
 from seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
-from torch.optim import Adam
+from torch.optim import AdamW
 import time
 import math
 from datasets import load_dataset
@@ -17,7 +15,6 @@ from transformers import (
 import random
 import wandb
 
-
 class Task(IntEnum):
     DIFFUSION = 1
     TRANSLATE = 2
@@ -26,16 +23,16 @@ class Task(IntEnum):
 class Args(Namespace):
     input_dim = 128
     output_dim = 128
-    enc_emb_dim = 256
-    dec_emb_dim = 256
-    enc_hid_dim = 512
-    dec_hid_dim = 512
-    enc_dropout = 0.5
-    dec_dropout = 0.5
+    enc_emb_dim = 512
+    dec_emb_dim = 512
+    enc_hid_dim = 1024
+    dec_hid_dim = 1024
+    enc_dropout = 0.2
+    dec_dropout = 0.2
     n_epochs = 10
     clip = 1
     max_length = 128
-    batch_size = 256
+    batch_size = 1024
     use_wandb = should_use_wandb()
     log_freq = 4
     valid_freq = 64
@@ -52,13 +49,13 @@ def tokenize_with_args(x):
     )
 
 
-print("Args: ", Args)
-print("Task: ", Args.task)
 
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
 input_dim_size = tokenizer.vocab_size
+
+print("Task: ", Args.task)
 
 if Args.task == Task.DIFFUSION:
     dataset = load_dataset(
@@ -89,6 +86,7 @@ dec = Decoder(
 device = get_available_device()
 model = Seq2Seq(enc, dec, device).to(device)
 
+print("Device: ", device)
 
 def init_weights(m):
     for name, param in m.named_parameters():
@@ -100,7 +98,7 @@ def init_weights(m):
 
 model.apply(init_weights)
 
-optimizer = Adam(model.parameters())
+optimizer = AdamW(model.parameters())
 
 criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
 

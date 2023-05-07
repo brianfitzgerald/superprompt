@@ -13,6 +13,8 @@ def get_available_device():
 
 
 def should_use_wandb():
+    if os.environ["NO_WANDB"]:
+        return False
     return os.environ.get("USER") == "ubuntu" and platform.system().lower() == "linux"
 
 sample_prompt_pairs = [
