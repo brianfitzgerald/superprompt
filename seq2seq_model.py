@@ -25,7 +25,9 @@ class Encoder(nn.Module):
         # embedded = [src len, batch size, emb dim]
 
         # need to explicitly put lengths on cpu!
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, src_len.to("cpu"), enforce_sorted=False)
+        packed_embedded = nn.utils.rnn.pack_padded_sequence(
+            embedded, src_len.to("cpu"), enforce_sorted=False
+        )
 
         packed_outputs, hidden = self.rnn(packed_embedded)
 
@@ -87,8 +89,9 @@ class Attention(nn.Module):
         attention = self.v(energy).squeeze(2)
 
         # attention = [batch size, src len]
+        narrow_mask = mask[:, :attention.shape[1]]
 
-        attention = attention.masked_fill(mask == 0, -1e10)
+        attention = attention.masked_fill(narrow_mask == 0, -1e10)
 
         return F.softmax(attention, dim=1)
 

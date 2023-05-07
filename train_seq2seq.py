@@ -12,7 +12,7 @@ from seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
 from torch.optim import Adam
 import time
 import math
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from transformers import (
     BertTokenizer,
     DataCollatorForSeq2Seq,
@@ -20,6 +20,7 @@ from transformers import (
 import random
 import wandb
 import numpy as np
+from torch.utils.data import DataLoader
 
 SEED = 1234
 
@@ -45,19 +46,17 @@ class Args(Namespace):
     n_epochs = 10
     clip = 1
     max_length = 128
-    batch_size = 256
+    batch_size = 64
     use_wandb = should_use_wandb()
     log_freq = 4
-    valid_freq = 128
-    task = Task.TRANSLATE
+    # this is in samples
+    valid_freq = 256
+    task = Task.TRANSLATE.value
 
 
 def tokenize_batch(batch):
-    if Args.task == Task.DIFFUSION:
-        src_field, trg_field = "masked", "prompt"
-    elif Args.task == Task.TRANSLATE:
-        src_field, trg_field = "de", "en"
-    src = [f"[BOS] {s} [EOS]" for s in batch[src_field]]
+    src_field, trg_field = "de", "en"
+    # src = [f"[BOS] {s} [EOS]" for s in batch[src_field]]
     src = tokenizer(
         batch[src_field],
         truncation=True,
@@ -66,8 +65,8 @@ def tokenize_batch(batch):
         max_length=Args.max_length,
         return_tensors="pt",
     )
-    
-    trg = [f"[BOS] {s} [EOS]" for s in batch[trg_field]]
+
+    # trg = [f"[BOS] {s} [EOS]" for s in batch[trg_field]]
     trg = tokenizer(
         batch[trg_field],
         truncation=True,
@@ -76,7 +75,11 @@ def tokenize_batch(batch):
         max_length=Args.max_length,
         return_tensors="pt",
     )
-    return {"src_input_ids": src["input_ids"], "src_len": src["length"], "trg_input_ids": trg["input_ids"]}
+    return {
+        "src_input_ids": src["input_ids"],
+        "src_len": src["length"],
+        "trg_input_ids": trg["input_ids"],
+    }
 
 
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
@@ -90,15 +93,16 @@ print("Task: ", Args.task)
 
 if Args.task == Task.DIFFUSION:
     dataset = load_dataset(
-        "roborovski/diffusiondb-masked-no-descriptors"
+        "roborovski/diffusiondb-masked-no-descriptors",
+        remove_columns=["masked", "prompt"],
     )
 elif Args.task == Task.TRANSLATE:
     dataset = load_dataset("bentrevett/multi30k")
-    dataset["train"] = dataset["train"].map(
-        tokenize_batch, batched=True, batch_size=Args.batch_size
-    )
-    dataset["test"] = dataset["test"].map(
-        tokenize_batch, batched=True, batch_size=Args.batch_size
+    dataset = dataset.map(
+        tokenize_batch,
+        batched=True,
+        batch_size=Args.batch_size,
+        remove_columns=["de", "en"],
     )
 
 
@@ -141,15 +145,15 @@ optimizer = Adam(model.parameters())
 criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
 
 
-def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
+def train(model: Seq2Seq, dataset: Dataset, optimizer, criterion, clip):
     model.train()
 
     epoch_loss = 0
+    loader = DataLoader(dataset, batch_size=Args.batch_size, shuffle=True)
 
-    i = 0
-    for batch in iterator:
-        src_input_ids = batch["src_input_ids"].transpose(1, 0).to(device)
-        trg_input_ids = batch["trg_input_ids"].transpose(1, 0).to(device)
+    for i, batch in enumerate(loader):
+        src_input_ids = torch.stack(batch["src_input_ids"]).to(device)
+        trg_input_ids = torch.stack(batch["trg_input_ids"]).to(device)
         src_len = batch["src_len"].to(device)
 
         optimizer.zero_grad()
@@ -200,7 +204,7 @@ def train(model: Seq2Seq, iterator, optimizer, criterion, clip):
 
         epoch_loss += loss.item()
 
-    return epoch_loss / len(iterator)
+    return epoch_loss / len(dataset)
 
 
 def evaluate(model: Seq2Seq, iterator, criterion):
@@ -236,14 +240,14 @@ def evaluate(model: Seq2Seq, iterator, criterion):
 def validate(model: Seq2Seq, masked: str, prompt: str):
     model.eval()
     with torch.no_grad():
-        src = tokenize_batch(masked)
-        src_len = src["length"]
-        src = src["input_ids"]
-        trg = tokenize_batch(prompt)["input_ids"]
-        src = src.transpose(1, 0).to(device)
-        trg = trg.transpose(1, 0).to(device)
+        batch = tokenize_batch({"de": [masked], "en": [prompt]})
+        src_input_ids = batch["src_input_ids"].transpose(1, 0).to(device)
+        trg_input_ids = batch["trg_input_ids"].transpose(1, 0).to(device)
+        src_len = batch["src_len"].to(device)
+
+        output = model(src_input_ids, src_len, trg_input_ids)
+
         # Create a target tensor with batch size 1 and length max_length with all tokens masked
-        output = model(src, src_len, trg, 0)
         output = output.argmax(dim=-1)
         output_ls = output.squeeze().tolist()
         output = tokenizer.decode(output_ls)
