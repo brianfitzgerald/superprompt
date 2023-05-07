@@ -37,8 +37,8 @@ class Args(Namespace):
     max_length = 128
     batch_size = 256
     use_wandb = should_use_wandb()
-    log_freq = 16
-    valid_freq = 128
+    log_freq = 4
+    valid_freq = 64
     task = Task.TRANSLATE
 
 
