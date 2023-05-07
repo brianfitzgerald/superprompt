@@ -18,26 +18,42 @@ class Encoder(nn.Module):
 
     def forward(self, src, src_len):
         # src = [src len, batch size]
+        # src_len = [batch size]
 
         embedded = self.dropout(self.embedding(src))
 
-        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, src_len.to('cpu'))
-
         # embedded = [src len, batch size, emb dim]
+
+        # need to explicitly put lengths on cpu!
+        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, src_len.to("cpu"), enforce_sorted=False)
 
         packed_outputs, hidden = self.rnn(packed_embedded)
 
+        # packed_outputs is a packed sequence containing all hidden states
+        # hidden is now from the final non-padded element in the batch
+
         outputs, _ = nn.utils.rnn.pad_packed_sequence(packed_outputs)
+
+        # outputs is now a non-packed sequence, all hidden states obtained
+        #  when the input is a pad token are all zeros
+
+        # outputs = [src len, batch size, hid dim * num directions]
+        # hidden = [n layers * num directions, batch size, hid dim]
+
+        # hidden is stacked [forward_1, backward_1, forward_2, backward_2, ...]
+        # outputs are always from the last layer
 
         # hidden [-2, :, : ] is the last of the forwards RNN
         # hidden [-1, :, : ] is the last of the backwards RNN
 
         # initial decoder hidden is final hidden state of the forwards and backwards
         #  encoder RNNs fed through a linear layer
-
         hidden = torch.tanh(
             self.fc(torch.cat((hidden[-2, :, :], hidden[-1, :, :]), dim=1))
         )
+
+        # outputs = [src len, batch size, enc hid dim * 2]
+        # hidden = [batch size, dec hid dim]
 
         return outputs, hidden
 
@@ -50,6 +66,9 @@ class Attention(nn.Module):
         self.v = nn.Linear(dec_hid_dim, 1, bias=False)
 
     def forward(self, hidden, encoder_outputs, mask):
+        # hidden = [batch size, dec hid dim]
+        # encoder_outputs = [src len, batch size, enc hid dim * 2]
+
         batch_size = encoder_outputs.shape[1]
         src_len = encoder_outputs.shape[0]
 
@@ -58,11 +77,16 @@ class Attention(nn.Module):
 
         encoder_outputs = encoder_outputs.permute(1, 0, 2)
 
+        # hidden = [batch size, src len, dec hid dim]
+        # encoder_outputs = [batch size, src len, enc hid dim * 2]
+
         energy = torch.tanh(self.attn(torch.cat((hidden, encoder_outputs), dim=2)))
+
+        # energy = [batch size, src len, dec hid dim]
 
         attention = self.v(energy).squeeze(2)
 
-        # attention= [batch size, src len]
+        # attention = [batch size, src len]
 
         attention = attention.masked_fill(mask == 0, -1e10)
 
@@ -136,10 +160,10 @@ class Seq2Seq(nn.Module):
     def __init__(self, encoder, decoder, src_pad_idx, device):
         super().__init__()
 
-        self.encoder: Encoder = encoder
-        self.decoder: Decoder = decoder
-        self.device = device
+        self.encoder = encoder
+        self.decoder = decoder
         self.src_pad_idx = src_pad_idx
+        self.device = device
 
     def create_mask(self, src):
         mask = (src != self.src_pad_idx).permute(1, 0)
@@ -147,6 +171,7 @@ class Seq2Seq(nn.Module):
 
     def forward(self, src, src_len, trg, teacher_forcing_ratio=0.5):
         # src = [src len, batch size]
+        # src_len = [batch size]
         # trg = [trg len, batch size]
         # teacher_forcing_ratio is probability to use teacher forcing
         # e.g. if teacher_forcing_ratio is 0.75 we use teacher forcing 75% of the time
@@ -167,8 +192,11 @@ class Seq2Seq(nn.Module):
 
         mask = self.create_mask(src)
 
+        # mask = [batch size, src len]
+
         for t in range(1, trg_len):
-            # insert input token embedding, previous hidden state and all encoder hidden states
+            # insert input token embedding, previous hidden state, all encoder hidden states
+            #  and mask
             # receive output tensor (predictions) and new hidden state
             output, hidden, _ = self.decoder(input, hidden, encoder_outputs, mask)
 
