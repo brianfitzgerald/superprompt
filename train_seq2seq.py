@@ -9,7 +9,7 @@ from utils import (
     sample_translate_pairs,
 )
 from seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
-from torch.optim import AdamW
+from torch.optim import Adam
 import time
 import math
 from datasets import load_dataset
@@ -36,18 +36,16 @@ class Task(IntEnum):
 
 
 class Args(Namespace):
-    input_dim = 128
-    output_dim = 128
-    enc_emb_dim = 512
-    dec_emb_dim = 512
-    enc_hid_dim = 1024
-    dec_hid_dim = 1024
-    enc_dropout = 0.2
-    dec_dropout = 0.2
+    enc_emb_dim = 256
+    dec_emb_dim = 256
+    enc_hid_dim = 512
+    dec_hid_dim = 512
+    enc_dropout = 0.5
+    dec_dropout = 0.5
     n_epochs = 10
     clip = 1
     max_length = 128
-    batch_size = 2048
+    batch_size = 256
     use_wandb = should_use_wandb()
     log_freq = 4
     valid_freq = 128
@@ -70,9 +68,9 @@ def tokenize_batch(x):
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
-tokenizer.add_special_tokens(
-    {"pad_token": "[PAD]", "bos_token": "[BOS]", "eos_token": "[EOS]"}
-)
+# tokenizer.add_special_tokens(
+#     {"pad_token": "[PAD]", "bos_token": "[BOS]", "eos_token": "[EOS]"}
+# )
 
 print("Task: ", Args.task)
 
@@ -80,7 +78,6 @@ if Args.task == Task.DIFFUSION:
     dataset = load_dataset(
         "roborovski/diffusiondb-masked-no-descriptors", streaming=True
     )
-    collator = DataCollatorForSeq2Seq(tokenizer=tokenizer)
 elif Args.task == Task.TRANSLATE:
     dataset = load_dataset("bentrevett/multi30k", streaming=True)
 
@@ -119,7 +116,7 @@ def init_weights(m):
 
 model.apply(init_weights)
 
-optimizer = AdamW(model.parameters())
+optimizer = Adam(model.parameters())
 
 criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
 
