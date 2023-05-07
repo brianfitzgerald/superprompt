@@ -219,6 +219,8 @@ def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
             trg_input_ids = torch.stack(batch["trg_input_ids"]).to(device)
             src_len = batch["src_len"].to(device)
 
+            optimizer.zero_grad()
+
             output = model(src_input_ids, src_len, trg_input_ids)
 
             # trg = [trg len, batch size]
@@ -227,12 +229,18 @@ def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
             output_dim = output.shape[-1]
 
             output = output[1:].view(-1, output_dim)
-            trg = trg[1:].view(-1)
+            trg_input_ids = trg_input_ids[1:].view(-1)
+            # trg = [trg len, batch size]
+            # output = [trg len, batch size, output dim]
+
+            output_dim = output.shape[-1]
+
+            output = output[1:].view(-1, output_dim)
 
             # trg = [(trg len - 1) * batch size]
             # output = [(trg len - 1) * batch size, output dim]
 
-            loss = criterion(output, trg)
+            loss = criterion(output, trg_input_ids)
 
             epoch_loss += loss.item()
 
