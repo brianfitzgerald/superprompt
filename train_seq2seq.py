@@ -240,6 +240,9 @@ def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
             # trg = [(trg len - 1) * batch size]
             # output = [(trg len - 1) * batch size, output dim]
 
+            if output.shape[0] != trg_input_ids.shape[0]:
+                print("output shape : ", output.shape, " does not match trg_input_ids: ", trg_input_ids.shape)
+                continue
             loss = criterion(output, trg_input_ids)
 
             epoch_loss += loss.item()
