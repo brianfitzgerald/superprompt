@@ -51,11 +51,14 @@ class Args(Namespace):
     log_freq = 4
     # this is in samples
     valid_freq = 256
-    task = Task.TRANSLATE.value
+    task = Task.DIFFUSION.value
 
 
 def tokenize_batch(batch):
-    src_field, trg_field = "de", "en"
+    if Args.task.value == Task.DIFFUSION.value:
+        src_field, trg_field = "masked", "prompt"
+    elif Args.task.value == Task.TRANSLATE.value:
+        src_field, trg_field = "de", "en"
     # src = [f"[BOS] {s} [EOS]" for s in batch[src_field]]
     src = tokenizer(
         batch[src_field],
