@@ -55,9 +55,9 @@ class Args(Namespace):
 
 
 def tokenize_batch(batch):
-    if Args.task.value == Task.DIFFUSION.value:
+    if Args.task == Task.DIFFUSION.value:
         src_field, trg_field = "masked", "prompt"
-    elif Args.task.value == Task.TRANSLATE.value:
+    elif Args.task == Task.TRANSLATE.value:
         src_field, trg_field = "de", "en"
     # src = [f"[BOS] {s} [EOS]" for s in batch[src_field]]
     src = tokenizer(
