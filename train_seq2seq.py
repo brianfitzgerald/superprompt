@@ -262,7 +262,10 @@ def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
 def validate(model: Seq2Seq, masked: str, prompt: str):
     model.eval()
     with torch.no_grad():
-        batch = tokenize_batch({"de": [masked], "en": [prompt]})
+        if Args.task == Task.TRANSLATE.value:
+            batch = tokenize_batch({"de": [masked], "en": [prompt]})
+        elif Args.task == Task.DIFFUSION.value:
+            batch = tokenize_batch({"masked": [masked], "prompt": [prompt]})
         src_input_ids = batch["src_input_ids"].transpose(1, 0).to(device)
         trg_input_ids = batch["trg_input_ids"].transpose(1, 0).to(device)
         src_len = batch["src_len"].to(device)
