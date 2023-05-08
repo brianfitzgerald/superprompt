@@ -98,14 +98,21 @@ if Args.task == Task.DIFFUSION:
     dataset = load_dataset(
         "roborovski/diffusiondb-masked-no-descriptors",
     )
+    dataset = dataset.map(
+        tokenize_batch,
+        batched=True,
+        batch_size=Args.batch_size,
+        remove_columns=["prompt", "masked"],
+    )
+
 elif Args.task == Task.TRANSLATE:
     dataset = load_dataset("bentrevett/multi30k")
-dataset = dataset.map(
-    tokenize_batch,
-    batched=True,
-    batch_size=Args.batch_size,
-    remove_columns=["de", "en"],
-)
+    dataset = dataset.map(
+        tokenize_batch,
+        batched=True,
+        batch_size=Args.batch_size,
+        remove_columns=["de", "en"],
+    )
 
 
 input_dim_size = tokenizer.vocab_size
