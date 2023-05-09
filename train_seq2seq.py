@@ -125,8 +125,8 @@ elif Args.task == Task.TRANSLATE.value:
         }
     )
 
-valid_dataset = tokenize_batch(valid_dataset)
 valid_src = [valid_dataset["src"], valid_dataset["trg"]]
+valid_dataset = tokenize_batch(valid_dataset)
 
 input_dim_size = tokenizer.vocab_size
 attn = Attention(Args.enc_hid_dim, Args.dec_hid_dim)
