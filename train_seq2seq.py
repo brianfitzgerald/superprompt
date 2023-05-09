@@ -51,18 +51,14 @@ class Args(Namespace):
     log_freq = 2
     # this is in samples
     valid_freq = 256
-    task = Task.DIFFUSION.value
+    task = Task.TRANSLATE.value
     sample_limit = 10e5
 
 
 def tokenize_batch(batch):
-    if Args.task == Task.DIFFUSION.value:
-        src_field, trg_field = "masked", "prompt"
-    elif Args.task == Task.TRANSLATE.value:
-        src_field, trg_field = "de", "en"
-    src = [f"[BOS] {s} [EOS]" for s in batch[src_field]]
+    src = [f"[BOS] {s} [EOS]" for s in batch["src"]]
     src = tokenizer(
-        batch[src_field],
+        batch["src"],
         truncation=True,
         return_length=True,
         padding="max_length",
@@ -70,9 +66,9 @@ def tokenize_batch(batch):
         return_tensors="pt",
     )
 
-    trg = [f"[BOS] {s} [EOS]" for s in batch[trg_field]]
+    trg = [f"[BOS] {s} [EOS]" for s in batch["trg"]]
     trg = tokenizer(
-        batch[trg_field],
+        batch["trg"],
         truncation=True,
         return_length=True,
         padding="max_length",
@@ -100,6 +96,7 @@ if Args.task == Task.DIFFUSION:
     dataset = load_dataset(
         "roborovski/diffusiondb-masked-no-descriptors",
     )
+    dataset.rename_columns({"masked": "src", "prompt": "trg"})
     dataset = dataset.map(
         tokenize_batch,
         batched=True,
@@ -108,15 +105,16 @@ if Args.task == Task.DIFFUSION:
     )
     valid_dataset = Dataset.from_dict(
         {
-            "prompt": [x[0] for x in sample_prompt_pairs],
-            "masked": [x[1] for x in sample_prompt_pairs],
+            "src": [x[0] for x in sample_prompt_pairs],
+            "trg": [x[1] for x in sample_prompt_pairs],
         }
     )
-    valid_src = [valid_dataset["prompt"], valid_dataset["masked"]]
+
 
 
 elif Args.task == Task.TRANSLATE:
     dataset = load_dataset("bentrevett/multi30k")
+    dataset.rename_columns({"de": "src", "en": "trg"})
     dataset = dataset.map(
         tokenize_batch,
         batched=True,
@@ -125,13 +123,13 @@ elif Args.task == Task.TRANSLATE:
     )
     valid_dataset = Dataset.from_dict(
         {
-            "de": [x[0] for x in sample_translate_pairs],
-            "en": [x[1] for x in sample_translate_pairs],
+            "src": [x[0] for x in sample_translate_pairs],
+            "trg": [x[1] for x in sample_translate_pairs],
         }
     )
-    valid_src = [valid_dataset["de"], valid_dataset["en"]]
 
 valid_dataset = tokenize_batch(valid_dataset)
+valid_src = [valid_dataset["src"], valid_dataset["trg"]]
 
 input_dim_size = tokenizer.vocab_size
 attn = Attention(Args.enc_hid_dim, Args.dec_hid_dim)
