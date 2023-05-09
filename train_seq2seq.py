@@ -105,7 +105,7 @@ if Args.task == Task.DIFFUSION:
         remove_columns=["prompt", "masked"],
     )
     print(dataset["train"])
-    dataset["train"] = dataset["train"][:10000]
+    dataset["train"] = Dataset.from_list(dataset["train"][:10000])
     print(dataset["train"])
 
 elif Args.task == Task.TRANSLATE:
