@@ -104,6 +104,8 @@ if Args.task == Task.DIFFUSION:
         batch_size=Args.batch_size,
         remove_columns=["prompt", "masked"],
     )
+    dataset = dataset.shard(num_shards=10, index=0)
+    print(len(dataset["train"]))
 
 elif Args.task == Task.TRANSLATE:
     dataset = load_dataset("bentrevett/multi30k")
@@ -297,7 +299,7 @@ for epoch in range(Args.n_epochs):
     start_time = time.time()
 
     train_loss = train(model, dataset["train"], optimizer, criterion, Args.clip)
-    print("train_loss", train_loss)
+    print("train_loss: ", train_loss)
     eval_loss = evaluate(model, dataset["test"], criterion)
     if Args.use_wandb:
         wandb.log(
