@@ -104,8 +104,7 @@ if Args.task == Task.DIFFUSION:
         batch_size=Args.batch_size,
         remove_columns=["prompt", "masked"],
     )
-    dataset = dataset.shard(num_shards=10, index=0)
-    print(len(dataset["train"]))
+    dataset["train"] = dataset["train"][:10000]
 
 elif Args.task == Task.TRANSLATE:
     dataset = load_dataset("bentrevett/multi30k")
