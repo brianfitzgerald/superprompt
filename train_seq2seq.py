@@ -92,16 +92,16 @@ tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
 print("Task: ", Args.task)
 valid_src = []
 
-if Args.task == Task.DIFFUSION:
+if Args.task == Task.DIFFUSION.value:
     dataset = load_dataset(
         "roborovski/diffusiondb-masked-no-descriptors",
     )
-    dataset.rename_columns({"masked": "src", "prompt": "trg"})
+    dataset = dataset.rename_columns({"masked": "src", "prompt": "trg"})
     dataset = dataset.map(
         tokenize_batch,
         batched=True,
         batch_size=Args.batch_size,
-        remove_columns=["prompt", "masked"],
+        remove_columns=["src", "trg"],
     )
     valid_dataset = Dataset.from_dict(
         {
@@ -109,17 +109,14 @@ if Args.task == Task.DIFFUSION:
             "trg": [x[1] for x in sample_prompt_pairs],
         }
     )
-
-
-
-elif Args.task == Task.TRANSLATE:
+elif Args.task == Task.TRANSLATE.value:
     dataset = load_dataset("bentrevett/multi30k")
-    dataset.rename_columns({"de": "src", "en": "trg"})
+    dataset = dataset.rename_columns({"de": "src", "en": "trg"})
     dataset = dataset.map(
         tokenize_batch,
         batched=True,
         batch_size=Args.batch_size,
-        remove_columns=["de", "en"],
+        remove_columns=["src", "trg"],
     )
     valid_dataset = Dataset.from_dict(
         {
@@ -270,7 +267,7 @@ def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
 
 def validate(model: Seq2Seq, idx: int, epoch: int):
     model.eval()
-    
+
     with torch.no_grad():
         src_input_ids = valid_dataset["src_input_ids"].transpose(1, 0).to(device)
         trg_input_ids = valid_dataset["trg_input_ids"].transpose(1, 0).to(device)
