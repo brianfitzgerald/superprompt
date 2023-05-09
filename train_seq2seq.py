@@ -51,7 +51,7 @@ class Args(Namespace):
     log_freq = 2
     # this is in samples
     valid_freq = 256
-    task = Task.TRANSLATE.value
+    task = Task.DIFFUSION.value
     sample_limit = 10e5
 
 
@@ -60,7 +60,7 @@ def tokenize_batch(batch):
         src_field, trg_field = "masked", "prompt"
     elif Args.task == Task.TRANSLATE.value:
         src_field, trg_field = "de", "en"
-    # src = [f"[BOS] {s} [EOS]" for s in batch[src_field]]
+    src = [f"[BOS] {s} [EOS]" for s in batch[src_field]]
     src = tokenizer(
         batch[src_field],
         truncation=True,
@@ -70,7 +70,7 @@ def tokenize_batch(batch):
         return_tensors="pt",
     )
 
-    # trg = [f"[BOS] {s} [EOS]" for s in batch[trg_field]]
+    trg = [f"[BOS] {s} [EOS]" for s in batch[trg_field]]
     trg = tokenizer(
         batch[trg_field],
         truncation=True,
@@ -208,6 +208,7 @@ def train(model: Seq2Seq, dataset: Dataset, optimizer, criterion, clip):
             wandb.log({"loss": loss.item()})
 
         if i % Args.valid_freq == 0:
+            print("Validating")
             validate(model, i, epoch)
 
         loss.backward()
@@ -293,6 +294,7 @@ def validate(model: Seq2Seq, idx: int, epoch: int):
                     outputs[i],
                 ]
             )
+        print("Sample: ", valid_table_data[-1])
     if Args.use_wandb:
         sample_table = wandb.Table(
             columns=["epoch", "idx", "input", "expected", "output"],
@@ -314,6 +316,7 @@ best_valid_loss = float("inf")
 if Args.use_wandb:
     wandb.init(config=Args, project="superprompt-seq2seq-rnn")
     wandb.watch(model, log_freq=Args.log_freq)
+    print("wandb initialized")
 
 valid_table_data = []
 
