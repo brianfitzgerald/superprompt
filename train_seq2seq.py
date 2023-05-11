@@ -50,7 +50,7 @@ class Args(Namespace):
     use_wandb = should_use_wandb()
     log_freq = 2
     # this is in samples
-    valid_freq = 256
+    valid_freq = 64
     task = Task.TRANSLATE.value
     sample_limit = 10e5
 
@@ -277,9 +277,11 @@ def validate(model: Seq2Seq, idx: int, epoch: int):
 
         # Create a target tensor with batch size 1 and length max_length with all tokens masked
         outputs = outputs.argmax(dim=-1)
+        outputs = outputs.transpose(1, 0)
         output_ls = outputs.squeeze().tolist()
         outputs = [tokenizer.decode(x) for x in output_ls]
         for i in range(len(valid_src)):
+            print("Input: ", valid_src[0][i], "Expected: ", valid_src[1][i], "Output: ", outputs[i])
             valid_table_data.append(
                 [
                     epoch,
@@ -289,7 +291,6 @@ def validate(model: Seq2Seq, idx: int, epoch: int):
                     outputs[i],
                 ]
             )
-        print("Sample: ", valid_table_data[-1])
     if Args.use_wandb:
         sample_table = wandb.Table(
             columns=["epoch", "idx", "input", "expected", "output"],
