@@ -103,6 +103,8 @@ if Args.task == Task.DIFFUSION.value:
         batch_size=Args.batch_size,
         remove_columns=["src", "trg"],
     )
+    dataset = dataset.train_test_split(test_size=0.1)
+    print(dataset["train"], dataset["test"])
     valid_dataset = Dataset.from_dict(
         {
             "src": [x[0] for x in sample_prompt_pairs],
@@ -340,7 +342,8 @@ for epoch in range(Args.n_epochs):
 
     if eval_loss < best_valid_loss:
         best_valid_loss = eval_loss
-        torch.save(model.state_dict(), "tut1-model.pt")
+        task = Args.task
+        torch.save(model.state_dict(), f"model-{epoch}-task{task}.pt")
 
     print(f"Epoch: {epoch+1:02} | Time: {epoch_mins}m {epoch_secs}s")
     print(f"\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}")
