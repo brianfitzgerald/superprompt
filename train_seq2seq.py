@@ -91,7 +91,6 @@ tokenizer.add_special_tokens(
 
 print("Task: ", Args.task)
 valid_src = []
-print("Task: ", Task[Args.task])
 
 if Args.task == Task.DIFFUSION.value:
     dataset = load_dataset(
