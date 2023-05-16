@@ -104,7 +104,7 @@ if Args.task == Task.DIFFUSION.value:
         remove_columns=["src", "trg"],
     )
     dataset = dataset.train_test_split(test_size=0.1)
-    print(dataset["train"], dataset["test"])
+    print(dataset)
     valid_dataset = Dataset.from_dict(
         {
             "src": [x[0] for x in sample_prompt_pairs],
