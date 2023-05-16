@@ -9,7 +9,7 @@ from utils import (
     sample_translate_pairs,
 )
 from seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
-from torch.optim import Adam
+from torch.optim import AdamW
 import time
 import math
 from datasets import load_dataset, Dataset
@@ -50,7 +50,7 @@ class Args(Namespace):
     use_wandb = should_use_wandb()
     log_freq = 2
     # this is in samples
-    valid_freq = 256
+    valid_freq = 128
     task = Task.DIFFUSION.value
     sample_limit = 10e5
 
@@ -164,7 +164,7 @@ def init_weights(m):
 
 model.apply(init_weights)
 
-optimizer = Adam(model.parameters())
+optimizer = AdamW(model.parameters(), lr=3e-4)
 
 criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
 
@@ -205,7 +205,6 @@ def train(model: Seq2Seq, dataset: Dataset, optimizer, criterion, clip):
             wandb.log({"loss": loss.item()})
 
         if i % Args.valid_freq == 0:
-            print("Validating")
             validate(model, i, epoch)
 
         loss.backward()
