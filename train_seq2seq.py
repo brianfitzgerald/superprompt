@@ -88,11 +88,11 @@ def tokenize_batch(batch):
 tokenizer: BertTokenizer = BertTokenizer.from_pretrained(
     "bert-base-uncased", use_fast=True
 )
-# tokenizer.add_special_tokens(
-#     {"pad_token": "[PAD]", "bos_token": "[BOS]", "eos_token": "[EOS]"}
-# )
+tokenizer.add_special_tokens(
+    {"pad_token": "[PAD]", "bos_token": "[BOS]", "eos_token": "[EOS]"}
+)
 
-print("Task: ", Args.task)
+print("Task: ", Task[Args.task])
 
 if Args.task == Task.DIFFUSION:
     dataset = load_dataset(
