@@ -103,6 +103,7 @@ if Args.task == Task.DIFFUSION.value:
         batch_size=Args.batch_size,
         remove_columns=["src", "trg"],
     )
+    dataset = dataset["train"]
     print(dataset)
     dataset = dataset.train_test_split(test_size=0.1)
     valid_dataset = Dataset.from_dict(
