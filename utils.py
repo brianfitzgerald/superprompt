@@ -27,18 +27,18 @@ sample_prompt_pairs = [
         "painting ghost riders sky sunrise wlop tooth wu charlie russell",
         "a beautiful painting of ghost riders in the sky, sunrise, by wlop, tooth wu and charlie russell",
     ),
-    {
+    (
         "princess dance fairy gold dress sky stanley artgerm lau greg rutkowski victo ngai alphonse loish norman",
-        "chinese princess, dance, fairy, beautiful, stunning, red and gold dress, spinning in the sky, by stanley artgerm lau, greg rutkowski, victo ngai, alphonse mucha, loish, norman rockwell"
-    },
-    {
+        "chinese princess, dance, fairy, beautiful, stunning, red and gold dress, spinning in the sky, by stanley artgerm lau, greg rutkowski, victo ngai, alphonse mucha, loish, norman rockwell",
+    ),
+    (
         "scene painting girl balustrade dress pattern seaside resort buildings background dusk clouds seagulls artstation krenz cushart alphonse maria mucha point composition k resolution hand illustration style",
-        "a beautiful scene painting of a young girl, with a maiden balustrade in a white dress with a beautiful pattern, a beautiful deserted seaside resort with many wooden buildings in the background, romantic dusk, beautiful clouds, seagulls, trending on artstation, by krenz cushart and alphonse maria mucha, three - point composition, 8 k resolution, hand - painted, illustration style"	
-    },
-    {
+        "a beautiful scene painting of a young girl, with a maiden balustrade in a white dress with a beautiful pattern, a beautiful deserted seaside resort with many wooden buildings in the background, romantic dusk, beautiful clouds, seagulls, trending on artstation, by krenz cushart and alphonse maria mucha, three - point composition, 8 k resolution, hand - painted, illustration style",
+    ),
+    (
         "portrait samurai goth punk colors style alexander mcqueen hyper art bill sienkiewicz artstation background",
-        "close up portrait of old samurai, goth punk, vibrant yellow colors, surreal, french baroque style by alexander mcqueen, hyper detailed, cinematic, art by bill sienkiewicz trending artstation, remove red background"
-    }
+        "close up portrait of old samurai, goth punk, vibrant yellow colors, surreal, french baroque style by alexander mcqueen, hyper detailed, cinematic, art by bill sienkiewicz trending artstation, remove red background",
+    ),
 ]
 
 sample_translate_pairs = [
