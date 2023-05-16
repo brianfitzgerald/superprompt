@@ -45,13 +45,13 @@ class Args(Namespace):
     dec_dropout = 0.5
     n_epochs = 10
     clip = 1
-    max_length = 128
+    max_length = 64
     batch_size = 64
     use_wandb = should_use_wandb()
     log_freq = 2
     # this is in samples
-    valid_freq = 64
-    task = Task.TRANSLATE.value
+    valid_freq = 256
+    task = Task.DIFFUSION.value
     sample_limit = 10e5
 
 
