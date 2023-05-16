@@ -48,20 +48,17 @@ class Args(Namespace):
     max_length = 128
     batch_size = 64
     use_wandb = should_use_wandb()
-    log_freq = 4
+    log_freq = 2
     # this is in samples
-    valid_freq = 256
-    task = Task.DIFFUSION.value
+    valid_freq = 64
+    task = Task.TRANSLATE.value
+    sample_limit = 10e5
 
 
 def tokenize_batch(batch):
-    if Args.task == Task.DIFFUSION.value:
-        src_field, trg_field = "masked", "prompt"
-    elif Args.task == Task.TRANSLATE.value:
-        src_field, trg_field = "de", "en"
-    # src = [f"[BOS] {s} [EOS]" for s in batch[src_field]]
+    src = [f"[BOS] {s} [EOS]" for s in batch["src"]]
     src = tokenizer(
-        batch[src_field],
+        batch["src"],
         truncation=True,
         return_length=True,
         padding="max_length",
@@ -69,9 +66,9 @@ def tokenize_batch(batch):
         return_tensors="pt",
     )
 
-    # trg = [f"[BOS] {s} [EOS]" for s in batch[trg_field]]
+    trg = [f"[BOS] {s} [EOS]" for s in batch["trg"]]
     trg = tokenizer(
-        batch[trg_field],
+        batch["trg"],
         truncation=True,
         return_length=True,
         padding="max_length",
@@ -92,28 +89,45 @@ tokenizer.add_special_tokens(
     {"pad_token": "[PAD]", "bos_token": "[BOS]", "eos_token": "[EOS]"}
 )
 
+print("Task: ", Args.task)
+valid_src = []
 print("Task: ", Task[Args.task])
 
-if Args.task == Task.DIFFUSION:
+if Args.task == Task.DIFFUSION.value:
     dataset = load_dataset(
         "roborovski/diffusiondb-masked-no-descriptors",
     )
+    dataset = dataset.rename_columns({"masked": "src", "prompt": "trg"})
     dataset = dataset.map(
         tokenize_batch,
         batched=True,
         batch_size=Args.batch_size,
-        remove_columns=["prompt", "masked"],
+        remove_columns=["src", "trg"],
     )
-
-elif Args.task == Task.TRANSLATE:
+    valid_dataset = Dataset.from_dict(
+        {
+            "src": [x[0] for x in sample_prompt_pairs],
+            "trg": [x[1] for x in sample_prompt_pairs],
+        }
+    )
+elif Args.task == Task.TRANSLATE.value:
     dataset = load_dataset("bentrevett/multi30k")
+    dataset = dataset.rename_columns({"de": "src", "en": "trg"})
     dataset = dataset.map(
         tokenize_batch,
         batched=True,
         batch_size=Args.batch_size,
-        remove_columns=["de", "en"],
+        remove_columns=["src", "trg"],
+    )
+    valid_dataset = Dataset.from_dict(
+        {
+            "src": [x[0] for x in sample_translate_pairs],
+            "trg": [x[1] for x in sample_translate_pairs],
+        }
     )
 
+valid_src = [valid_dataset["src"], valid_dataset["trg"]]
+valid_dataset = tokenize_batch(valid_dataset)
 
 input_dim_size = tokenizer.vocab_size
 attn = Attention(Args.enc_hid_dim, Args.dec_hid_dim)
@@ -161,6 +175,9 @@ def train(model: Seq2Seq, dataset: Dataset, optimizer, criterion, clip):
     loader = DataLoader(dataset, batch_size=Args.batch_size, shuffle=True)
 
     for i, batch in enumerate(loader):
+        if i > Args.sample_limit:
+            print("Sample limit reached, returning.")
+            break
         src_input_ids = torch.stack(batch["src_input_ids"]).to(device)
         trg_input_ids = torch.stack(batch["trg_input_ids"]).to(device)
         src_len = batch["src_len"].to(device)
@@ -187,23 +204,8 @@ def train(model: Seq2Seq, dataset: Dataset, optimizer, criterion, clip):
             wandb.log({"loss": loss.item()})
 
         if i % Args.valid_freq == 0:
-            if Args.task == Task.DIFFUSION:
-                valid_a, valid_b = sample_prompt_pairs[i % len(sample_prompt_pairs)]
-            elif Args.task == Task.TRANSLATE:
-                valid_a, valid_b = sample_translate_pairs[
-                    i % len(sample_translate_pairs)
-                ]
-            valid_output = validate(model, valid_a, valid_b)
-            print("valid_a: ", valid_a)
-            print("valid_b: ", valid_b)
-            print("valid_output: ", valid_output)
-            model.train()
-            if Args.use_wandb:
-                valid_table_data.append([valid_a, valid_b, valid_output])
-                sample_table = wandb.Table(
-                    columns=["input", "expected", "output"], data=valid_table_data
-                )
-                wandb.log({"sample": sample_table})
+            print("Validating")
+            validate(model, i, epoch)
 
         loss.backward()
 
@@ -250,7 +252,12 @@ def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
             # output = [(trg len - 1) * batch size, output dim]
 
             if output.shape[0] != trg_input_ids.shape[0]:
-                print("output shape : ", output.shape, " does not match trg_input_ids: ", trg_input_ids.shape)
+                print(
+                    "output shape : ",
+                    output.shape,
+                    " does not match trg_input_ids: ",
+                    trg_input_ids.shape,
+                )
                 continue
             loss = criterion(output, trg_input_ids)
 
@@ -259,24 +266,39 @@ def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
     return epoch_loss / len(dataset)
 
 
-def validate(model: Seq2Seq, masked: str, prompt: str):
+def validate(model: Seq2Seq, idx: int, epoch: int):
     model.eval()
-    with torch.no_grad():
-        if Args.task == Task.TRANSLATE.value:
-            batch = tokenize_batch({"de": [masked], "en": [prompt]})
-        elif Args.task == Task.DIFFUSION.value:
-            batch = tokenize_batch({"masked": [masked], "prompt": [prompt]})
-        src_input_ids = batch["src_input_ids"].transpose(1, 0).to(device)
-        trg_input_ids = batch["trg_input_ids"].transpose(1, 0).to(device)
-        src_len = batch["src_len"].to(device)
 
-        output = model(src_input_ids, src_len, trg_input_ids)
+    with torch.no_grad():
+        src_input_ids = valid_dataset["src_input_ids"].transpose(1, 0).to(device)
+        trg_input_ids = valid_dataset["trg_input_ids"].transpose(1, 0).to(device)
+        src_len = valid_dataset["src_len"].to(device)
+
+        outputs = model(src_input_ids, src_len, trg_input_ids)
 
         # Create a target tensor with batch size 1 and length max_length with all tokens masked
-        output = output.argmax(dim=-1)
-        output_ls = output.squeeze().tolist()
-        output = tokenizer.decode(output_ls)
-        return output
+        outputs = outputs.argmax(dim=-1)
+        outputs = outputs.transpose(1, 0)
+        output_ls = outputs.squeeze().tolist()
+        outputs = [tokenizer.decode(x) for x in output_ls]
+        for i in range(len(valid_src)):
+            print("Input: ", valid_src[0][i], "Expected: ", valid_src[1][i], "Output: ", outputs[i])
+            valid_table_data.append(
+                [
+                    epoch,
+                    idx,
+                    valid_src[0][i],
+                    valid_src[1][i],
+                    outputs[i],
+                ]
+            )
+    if Args.use_wandb:
+        sample_table = wandb.Table(
+            columns=["epoch", "idx", "input", "expected", "output"],
+            data=valid_table_data,
+        )
+        wandb.log({"sample": sample_table})
+    model.train()
 
 
 def epoch_time(start_time, end_time):
@@ -291,13 +313,15 @@ best_valid_loss = float("inf")
 if Args.use_wandb:
     wandb.init(config=Args, project="superprompt-seq2seq-rnn")
     wandb.watch(model, log_freq=Args.log_freq)
-    valid_table_data = []
+    print("wandb initialized")
+
+valid_table_data = []
 
 for epoch in range(Args.n_epochs):
     start_time = time.time()
 
     train_loss = train(model, dataset["train"], optimizer, criterion, Args.clip)
-    print("train_loss", train_loss)
+    print("train_loss: ", train_loss)
     eval_loss = evaluate(model, dataset["test"], criterion)
     if Args.use_wandb:
         wandb.log(
