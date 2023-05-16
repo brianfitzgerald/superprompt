@@ -54,6 +54,7 @@ class Args(Namespace):
     task = Task.DIFFUSION.value
     sample_limit = 10e5
 
+max_length = Args.max_length
 
 def tokenize_batch(batch):
     src = [f"[BOS] {s} [EOS]" for s in batch["src"]]
@@ -62,7 +63,7 @@ def tokenize_batch(batch):
         truncation=True,
         return_length=True,
         padding="max_length",
-        max_length=Args.max_length,
+        max_length=max_length,
         return_tensors="pt",
     )
 
@@ -72,7 +73,7 @@ def tokenize_batch(batch):
         truncation=True,
         return_length=True,
         padding="max_length",
-        max_length=Args.max_length,
+        max_length=max_length,
         return_tensors="pt",
     )
     return {
