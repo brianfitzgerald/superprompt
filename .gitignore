@@ -154,3 +154,4 @@ cython_debug/
 wandb/*
 
 *.parquet
+nohup.out
