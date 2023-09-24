@@ -12,7 +12,7 @@ from seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
 from torch.optim import AdamW
 import time
 import math
-from datasets import load_dataset, Dataset
+from datasets import load_dataset, Dataset, ReadInstruction
 from transformers import (
     BertTokenizer,
     DataCollatorForSeq2Seq,
@@ -96,12 +96,13 @@ valid_src = []
 if Args.task == Task.DIFFUSION.value:
     dataset = load_dataset(
         "roborovski/diffusiondb-masked-no-descriptors",
+        split=ReadInstruction("train", to=10, unit="%")
     )
     dataset = dataset.rename_columns({"masked": "src", "prompt": "trg"})
     dataset = dataset.map(
         tokenize_batch,
         batched=True,
-        batch_size=Args.batch_size,
+        batch_size=256,
         remove_columns=["src", "trg"],
     )
     dataset = dataset["train"]

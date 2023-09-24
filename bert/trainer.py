@@ -1,16 +1,15 @@
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
-from torch.utils.data import DataLoader
 import numpy as np
 import tqdm
-from IPython.display import display
 from bert.model import BERT
 import wandb
 from transformers import BertTokenizer, DataCollatorForLanguageModeling
 import random
 from datasets import IterableDataset
-from utils import get_available_device, sample_prompts
+from utils import get_available_device, sample_prompt_pairs
+
 
 class ScheduledOptim:
     """A simple wrapper class for learning rate scheduling"""
@@ -59,7 +58,6 @@ class BERTTrainer:
         lr: float = 1e-4,
         betas=(0.9, 0.999),
         weight_decay: float = 0.01,
-        warmup_steps=10000,
         max_len: int = 256,
         batch_size: int = 32,
         log_freq: int = 10,
@@ -89,9 +87,7 @@ class BERTTrainer:
         self.optim = AdamW(
             self.model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay
         )
-        self.optim_schedule = ScheduledOptim(
-            self.optim, self.model.hidden, n_warmup_steps=warmup_steps
-        )
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optim, 10)
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
         print("mask token id", tokenizer.mask_token_id)
@@ -134,9 +130,9 @@ class BERTTrainer:
             print(f"epoch {epoch} i {i} avg_loss {avg_loss}")
 
             if train:
-                self.optim_schedule.zero_grad()
+                self.optim.zero_grad()
                 loss.backward()
-                self.optim_schedule.step_and_update_lr()
+                self.optim.step()
 
             if i % self.log_freq == 0:
                 post_fix = {
@@ -162,7 +158,7 @@ class BERTTrainer:
                 self.save(epoch, self.output_path)
 
     def eval_sample(self):
-        prompt = random.choice(sample_prompts)
+        prompt = random.choice(sample_prompt_pairs)
         print("---EVAL---")
         print("prompt", prompt)
         tokenized = self.tokenizer(

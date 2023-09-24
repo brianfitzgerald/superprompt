@@ -8,7 +8,7 @@ from transformers import BertTokenizer, DataCollatorForLanguageModeling
 import sys
 import os
 
-from utils import should_use_wandb, sample_prompts
+from utils import should_use_wandb, sample_prompt_pairs
 
 
 gc.collect()
