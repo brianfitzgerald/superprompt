@@ -90,13 +90,13 @@ tokenizer.add_special_tokens(
     {"pad_token": "[PAD]", "bos_token": "[BOS]", "eos_token": "[EOS]"}
 )
 
-print("Task: ", Args.task)
+print("Task: ", Task(Args.task).name)
 valid_src = []
 
 if Args.task == Task.DIFFUSION.value:
     dataset = load_dataset(
         "roborovski/diffusiondb-masked-no-descriptors",
-        split=ReadInstruction("train", to=10, unit="%")
+        split=ReadInstruction("train", to=25, unit="%")
     )
     dataset = dataset.rename_columns({"masked": "src", "prompt": "trg"})
     dataset = dataset.map(
@@ -105,7 +105,6 @@ if Args.task == Task.DIFFUSION.value:
         batch_size=256,
         remove_columns=["src", "trg"],
     )
-    dataset = dataset["train"]
     dataset = dataset.train_test_split(test_size=0.1)
     valid_dataset = Dataset.from_dict(
         {
