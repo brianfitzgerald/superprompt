@@ -155,3 +155,4 @@ wandb/*
 
 *.parquet
 nohup.out
+*.pt

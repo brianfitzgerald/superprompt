@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 from utils import (
     get_available_device,
-    should_use_wandb,
     sample_prompt_pairs,
     sample_translate_pairs,
 )
@@ -21,6 +20,8 @@ import random
 import wandb
 import numpy as np
 from torch.utils.data import DataLoader
+import fire
+from typing import List
 
 SEED = 1234
 
@@ -41,13 +42,12 @@ class Args(Namespace):
     dec_emb_dim = 256
     enc_hid_dim = 512
     dec_hid_dim = 512
-    enc_dropout = 0.5
-    dec_dropout = 0.5
+    enc_dropout = 0.2
+    dec_dropout = 0.2
     n_epochs = 10
-    clip = 1
+    max_norm = 1
     max_length = 64
     batch_size = 64
-    use_wandb = should_use_wandb()
     log_freq = 2
     # this is in samples
     valid_freq = 128
@@ -170,7 +170,7 @@ optimizer = AdamW(model.parameters(), lr=3e-4)
 criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
 
 
-def train(model: Seq2Seq, dataset: Dataset, optimizer, criterion, clip):
+def train(model: Seq2Seq, epoch: int, valid_table_data: List[str], dataset: Dataset, optimizer, criterion, use_wandb: bool):
     model.train()
 
     epoch_loss = 0
@@ -200,17 +200,18 @@ def train(model: Seq2Seq, dataset: Dataset, optimizer, criterion, clip):
         # output = [(trg len - 1) * batch size, output dim]
 
         loss = criterion(output, trg_input_ids)
+        loss_rounded = round(loss.item(), 3)
         # loss.requires_grad = True
-        print(f"iteration {i}: {loss.item()}")
-        if i % Args.log_freq == 0 and Args.use_wandb:
-            wandb.log({"loss": loss.item()})
+        print(f"Batch {i}: {loss_rounded}")
+        if i % Args.log_freq == 0 and use_wandb:
+            wandb.log({"loss": loss_rounded})
 
         if i % Args.valid_freq == 0:
-            validate(model, i, epoch)
+            validate(model, valid_table_data, i, epoch, use_wandb)
 
         loss.backward()
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), Args.max_norm)
 
         optimizer.step()
 
@@ -267,7 +268,7 @@ def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
     return epoch_loss / len(dataset)
 
 
-def validate(model: Seq2Seq, idx: int, epoch: int):
+def validate(model: Seq2Seq, valid_table_data: List[str], idx: int, epoch: int, use_wandb: bool):
     model.eval()
 
     with torch.no_grad():
@@ -293,7 +294,7 @@ def validate(model: Seq2Seq, idx: int, epoch: int):
                     outputs[i],
                 ]
             )
-    if Args.use_wandb:
+    if use_wandb:
         sample_table = wandb.Table(
             columns=["epoch", "idx", "input", "expected", "output"],
             data=valid_table_data,
@@ -308,43 +309,48 @@ def epoch_time(start_time, end_time):
     elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
     return elapsed_mins, elapsed_secs
 
+def main(use_wandb: bool = False):
 
-best_valid_loss = float("inf")
+    best_valid_loss = float("inf")
 
-if Args.use_wandb:
-    wandb.init(config=Args, project="superprompt-seq2seq-rnn")
-    wandb.watch(model, log_freq=Args.log_freq)
-    print("wandb initialized")
+    if use_wandb:
+        wandb.init(config=Args, project="superprompt-seq2seq-rnn")
+        wandb.watch(model, log_freq=Args.log_freq)
+        print("wandb initialized")
 
-valid_table_data = []
+    valid_table_data = []
 
-for epoch in range(Args.n_epochs):
-    start_time = time.time()
+    for epoch in range(Args.n_epochs):
+        start_time = time.time()
 
-    train_loss = train(model, dataset["train"], optimizer, criterion, Args.clip)
-    print("train_loss: ", train_loss)
-    eval_loss = evaluate(model, dataset["test"], criterion)
-    if Args.use_wandb:
-        wandb.log(
-            {
-                "train_loss": train_loss,
-                "eval_loss": eval_loss,
-                "epoch": epoch,
-                "lr": optimizer.param_groups[0]["lr"],
-                "PPL": math.exp(train_loss),
-            }
-        )
-    print("eval_loss", eval_loss)
+        train_loss = train(model, epoch, valid_table_data, dataset["train"], optimizer, criterion, use_wandb)
+        print("train_loss: ", train_loss)
+        eval_loss = evaluate(model, dataset["test"], criterion)
+        if use_wandb:
+            wandb.log(
+                {
+                    "train_loss": train_loss,
+                    "eval_loss": eval_loss,
+                    "epoch": epoch,
+                    "lr": optimizer.param_groups[0]["lr"],
+                    "PPL": math.exp(train_loss),
+                }
+            )
+        print("eval_loss", eval_loss)
 
-    end_time = time.time()
+        end_time = time.time()
 
-    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+        epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-    if eval_loss < best_valid_loss:
-        best_valid_loss = eval_loss
-        task = Args.task
-        torch.save(model.state_dict(), f"model-{epoch}-task{task}.pt")
+        if eval_loss < best_valid_loss:
+            best_valid_loss = eval_loss
+            task = Args.task
+            torch.save(model.state_dict(), f"model-{epoch}-task{task}.pt")
 
-    print(f"Epoch: {epoch+1:02} | Time: {epoch_mins}m {epoch_secs}s")
-    print(f"\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}")
-    print(f"\t Val. Loss: {eval_loss:.3f} |  Val. PPL: {math.exp(eval_loss):7.3f}")
+        print(f"Epoch: {epoch+1:02} | Time: {epoch_mins}m {epoch_secs}s")
+        print(f"\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}")
+        print(f"\t Val. Loss: {eval_loss:.3f} |  Val. PPL: {math.exp(eval_loss):7.3f}")
+
+
+if __name__ == "__main__":
+    fire.Fire(main)
