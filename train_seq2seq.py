@@ -22,6 +22,8 @@ import numpy as np
 from torch.utils.data import DataLoader
 import fire
 from typing import List
+from tabulate import tabulate
+import textwrap
 
 SEED = 1234
 
@@ -176,6 +178,7 @@ def train(model: Seq2Seq, epoch: int, valid_table_data: List[str], dataset: Data
     epoch_loss = 0
     loader = DataLoader(dataset, batch_size=Args.batch_size, shuffle=True)
 
+    validate(model, valid_table_data, 0, use_wandb)
     for i, batch in enumerate(loader):
         if i > Args.sample_limit:
             print("Sample limit reached, returning.")
@@ -207,7 +210,7 @@ def train(model: Seq2Seq, epoch: int, valid_table_data: List[str], dataset: Data
             wandb.log({"loss": loss_rounded})
 
         if i % Args.valid_freq == 0:
-            validate(model, valid_table_data, i, epoch, use_wandb)
+            validate(model, valid_table_data, i, use_wandb)
 
         loss.backward()
 
@@ -268,7 +271,7 @@ def evaluate(model: Seq2Seq, dataset: Dataset, criterion):
     return epoch_loss / len(dataset)
 
 
-def validate(model: Seq2Seq, valid_table_data: List[str], idx: int, epoch: int, use_wandb: bool):
+def validate(model: Seq2Seq, valid_table_data: List[str], batch_idx: int, use_wandb: bool):
     model.eval()
 
     with torch.no_grad():
@@ -284,16 +287,15 @@ def validate(model: Seq2Seq, valid_table_data: List[str], idx: int, epoch: int, 
         output_ls = outputs.squeeze().tolist()
         outputs = [tokenizer.decode(x) for x in output_ls]
         for i in range(len(valid_src)):
-            print("Input: ", valid_src[0][i], "Expected: ", valid_src[1][i], "Output: ", outputs[i])
+            source_text = textwrap.wrap(valid_src[0][i], width=50, break_long_words=True)
+            expected_text = textwrap.wrap(valid_src[1][i], width=50, break_long_words=True)
+            generated_text = textwrap.wrap(outputs[i], width=50, break_long_words=True)
             valid_table_data.append(
                 [
-                    epoch,
-                    idx,
-                    valid_src[0][i],
-                    valid_src[1][i],
-                    outputs[i],
+                    source_text, expected_text, generated_text
                 ]
             )
+        print(tabulate(valid_table_data, headers=["input", "expected", "output"]))
     if use_wandb:
         sample_table = wandb.Table(
             columns=["epoch", "idx", "input", "expected", "output"],
