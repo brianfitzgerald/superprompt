@@ -1,7 +1,7 @@
 from argparse import Namespace
 import gc
-from bert.model import BERT
-from bert.trainer import BERTTrainer
+from models.model import BERT
+from models.trainer import BERTTrainer
 import wandb
 from datasets import load_dataset
 from transformers import BertTokenizer, DataCollatorForLanguageModeling

@@ -7,7 +7,7 @@ from utils import (
     sample_prompt_pairs,
     sample_translate_pairs,
 )
-from seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
+from superprompt.models.seq2seq_model import Attention, Encoder, Decoder, Seq2Seq
 from torch.optim import AdamW
 import time
 import math
