@@ -12,15 +12,39 @@ import wandb
 from torch.optim import AdamW
 from tqdm import tqdm
 from torch.utils.data import DataLoader
+from diffusers.utils.import_utils import is_xformers_available
+import gc
 
 
+from diffusers import (
+    StableDiffusionPipeline,
+)
 from transformers import AutoTokenizer, CLIPTextModel
 from utils import get_available_device
 
 if not spacy.util.is_package("en_core_web_sm"):
     spacy.cli.download("en_core_web_sm")
 
-def main(use_wandb: bool = False):
+
+def process_batch(batch, model, criterion, optimizer, device, epoch):
+    mask_emb, unmask_emb = (
+        batch["masked_embeddings"].to(device),
+        batch["unmasked_embeddings"].to(device),
+    )
+
+    outputs = model(mask_emb)
+
+    loss = criterion(outputs, unmask_emb)
+    loss_formatted = "{:.4f}".format(loss.item())
+    log_dict = {
+        "loss": loss_formatted,
+        "epoch": epoch,
+        "lr": optimizer.param_groups[0]["lr"],
+    }
+    return loss, log_dict, mask_emb, unmask_emb, outputs
+
+
+def main(use_wandb: bool = False, eval_every: int = 1, val_bs: int = 4):
     device = get_available_device()
 
     clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32").to(
@@ -94,7 +118,7 @@ def main(use_wandb: bool = False):
 
     # display(model)
     model.train()
-    num_epochs = 100
+    num_epochs = 500
     optimizer = AdamW(model.parameters(), lr=1e-5)
     criterion = nn.MSELoss()
 
@@ -106,28 +130,17 @@ def main(use_wandb: bool = False):
 
     train_dataset, val_dataset = dataset["train"], dataset["validation"]
     train_loader = DataLoader(train_dataset, batch_size=72)
-    val_loader = DataLoader(val_dataset, batch_size=len(val_dataset))
+    val_loader = DataLoader(val_dataset, batch_size=4)
 
-    # Training loop
-    for epoch in range(num_epochs):
+    for i, epoch in enumerate(range(num_epochs)):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
-            mask_emb, unmask_emb = (
-                batch["masked_embeddings"].to(device),
-                batch["unmasked_embeddings"].to(device),
-            )
-
             optimizer.zero_grad()
 
-            outputs = model(mask_emb)
+            loss, log_dict, _, _, _ = process_batch(
+                batch, model, criterion, optimizer, device, epoch
+            )
 
-            loss = criterion(outputs, unmask_emb)
-            loss_formatted = "{:.4f}".format(loss.item())
-            log_dict = {
-                "loss": loss_formatted,
-                "epoch": epoch,
-                "lr": optimizer.param_groups[0]["lr"],
-            }
             train_iter.set_postfix(log=log_dict)
             if use_wandb:
                 wandb.log(log_dict)
@@ -135,8 +148,32 @@ def main(use_wandb: bool = False):
             # Backward pass and optimization
             loss.backward()
             optimizer.step()
+        if i % eval_every == 0:
+            for batch in val_loader:
+                pipe = StableDiffusionPipeline.from_pretrained(
+                    "runwayml/stable-diffusion-v1-5", torch_dtype=torch.float16
+                )
+                pipe = pipe.to("cuda")
+                loss, log_dict, mask_emb, _, outputs = process_batch(
+                    batch, model, criterion, optimizer, device, epoch
+                )
+
+                if is_xformers_available():
+                    pipe.unet.enable_xformers_memory_efficient_attention()
+
+                generations = pipe(prompt_embeds=outputs).images
+                for i, generation in enumerate(generations):
+                    log_dict[f"generation_{i}"] = generation
+                    generation.save(f"out/generation_{i}.png")
+
+                del pipe
+                gc.collect()
+                torch.cuda.empty_cache()
+
+                break
 
     wandb.finish()
+
 
 if __name__ == "__main__":
     fire.Fire(main)
