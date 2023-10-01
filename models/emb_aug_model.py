@@ -4,10 +4,11 @@ import os
 from typing import List
 import torch.nn.functional as F
 
+
 class EmbeddingAugModel(nn.Module):
     def __init__(
         self,
-        context_dim: int = 768,
+        context_dim: int = 512,
         layers: List[int] = [768, 1024, 1024, 768],
         device="cpu",
     ):
@@ -15,7 +16,7 @@ class EmbeddingAugModel(nn.Module):
 
         self.dropout = nn.Dropout(0.1)
         fc_layers = []
-        fc_layers.append(torch.nn.Linear(512, layers[0]))
+        fc_layers.append(torch.nn.Linear(context_dim, layers[0]))
         for _, (in_size, out_size) in enumerate(zip(layers[:-1], layers[1:])):
             fc_layers.append(torch.nn.Linear(in_size, out_size))
             fc_layers.append(torch.nn.ReLU())
@@ -24,6 +25,7 @@ class EmbeddingAugModel(nn.Module):
         self.bn = nn.BatchNorm1d(context_dim).to(device)
 
     def forward(self, x):
+        breakpoint()
         if self.training:
             x = self.dropout(x)
         x = self.embed_fc(x)

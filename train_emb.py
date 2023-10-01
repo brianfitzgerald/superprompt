@@ -49,7 +49,7 @@ def main(use_wandb: bool = False):
             padding="max_length",
             truncation=True,
         ).to(device)
-        unmasked_embeddings = clip_model(**unmasked_inputs).last_hidden_state
+        unmasked_embeddings = clip_model(**unmasked_inputs).pooler_output
 
         masked_prompts = [mask_non_nouns(prompt) for prompt in unmasked_prompts]
         masked_inputs = tokenizer(
@@ -59,7 +59,7 @@ def main(use_wandb: bool = False):
             padding="max_length",
             truncation=True,
         ).to(device)
-        masked_embeddings = clip_model(**masked_inputs).last_hidden_state
+        masked_embeddings = clip_model(**masked_inputs).pooler_output
         batch_dict = {
             "unmasked_embeddings": unmasked_embeddings,
             "masked_embeddings": masked_embeddings,
@@ -105,7 +105,7 @@ def main(use_wandb: bool = False):
         wandb.watch(model)
 
     train_dataset, val_dataset = dataset["train"], dataset["validation"]
-    train_loader = DataLoader(train_dataset, batch_size=48)
+    train_loader = DataLoader(train_dataset, batch_size=72)
     val_loader = DataLoader(val_dataset, batch_size=len(val_dataset))
 
     # Training loop
