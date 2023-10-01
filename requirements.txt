@@ -7,3 +7,4 @@ evaluate
 numpy
 fire
 tabulate==0.9.0
+pillow==10.0.1
