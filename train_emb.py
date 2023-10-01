@@ -12,7 +12,8 @@ model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
 tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 max_clip_length = model.config.max_position_embeddings
 
-spacy.cli.download("en_core_web_sm")
+if not spacy.util.is_package("en_core_web_sm"):
+    spacy.cli.download("en_core_web_sm")
 nlp = spacy.load("en_core_web_sm")
 
 
@@ -36,9 +37,9 @@ def process_batch(batch):
 
 
 def preprocess_dataset(batch: Dict):
-    prompts = batch["prompt"]
+    unmasked_prompts = batch["prompt"]
     unmasked_inputs = tokenizer(
-        text=prompts,
+        text=unmasked_prompts,
         return_tensors="pt",
         max_length=max_clip_length,
         padding="max_length",
@@ -46,7 +47,7 @@ def preprocess_dataset(batch: Dict):
     ).to(device)
     unmasked_embeddings = model(**unmasked_inputs).last_hidden_state
 
-    masked_prompts = [mask_non_nouns(prompt) for prompt in prompts]
+    masked_prompts = [mask_non_nouns(prompt) for prompt in unmasked_prompts]
     masked_inputs = tokenizer(
         text=masked_prompts,
         return_tensors="pt",
@@ -55,11 +56,16 @@ def preprocess_dataset(batch: Dict):
         truncation=True,
     ).to(device)
     masked_embeddings = model(**masked_inputs).last_hidden_state
-    return {
+    batch_dict = {
         "unmasked_embeddings": unmasked_embeddings,
         "masked_embeddings": masked_embeddings,
+        "masked_prompts": masked_prompts,
+        "unmasked_prompts": unmasked_prompts,
     }
+    return batch_dict
 
 
+# TODO filter for only high image text alignment scores
+remove_cols = ['image', 'prompt_id', 'prompt', 'classification', 'image_amount_in_total', 'rank', 'overall_rating', 'image_text_alignment_rating', 'fidelity_rating']
 dataset = load_dataset("THUDM/ImageRewardDB", "1k")
-dataset = dataset.map(preprocess_dataset, batched=True, num_proc=1, batch_size=12)
+dataset = dataset.map(preprocess_dataset, batched=True, num_proc=1, batch_size=48, remove_columns=remove_cols)
