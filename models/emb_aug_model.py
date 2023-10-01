@@ -25,7 +25,6 @@ class EmbeddingAugModel(nn.Module):
         self.bn = nn.BatchNorm1d(context_dim).to(device)
 
     def forward(self, x):
-        breakpoint()
         if self.training:
             x = self.dropout(x)
         x = self.embed_fc(x)
