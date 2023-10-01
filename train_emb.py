@@ -88,6 +88,7 @@ def main(use_wandb: bool = False):
         batch_size=48,
         remove_columns=remove_cols,
     )
+    dataset.set_format("torch")
 
     model = EmbeddingAugModel(device=device)
 
@@ -112,8 +113,8 @@ def main(use_wandb: bool = False):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
             mask_emb, unmask_emb = (
-                batch["masked_embeddings"],
-                batch["unmasked_embeddings"],
+                batch["masked_embeddings"].to(device),
+                batch["unmasked_embeddings"].to(device),
             )
 
             optimizer.zero_grad()
