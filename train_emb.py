@@ -46,7 +46,7 @@ def process_batch(batch, model, criterion, optimizer, device, epoch):
     return loss, log_dict, mask_emb, unmask_emb, outputs
 
 
-def main(use_wandb: bool = False, eval_every: int = 5):
+def main(use_wandb: bool = False, eval_every: int = 10):
     device = get_available_device()
 
     clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14").to(
