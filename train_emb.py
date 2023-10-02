@@ -16,7 +16,7 @@ from diffusers.utils.import_utils import is_xformers_available
 import gc
 from torchinfo import summary
 import os
-from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
+from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR
 
 from diffusers import (
     StableDiffusionPipeline,
@@ -125,12 +125,15 @@ def main(use_wandb: bool = False, eval_every: int = 10):
     model.train()
 
     # Hyperparameters
-    num_epochs: int = 500
-    learning_rate: float = 1e-5
-    batch_size: int = 64
+    num_epochs: int = 200
+    learning_rate: float = 2e-5
+    batch_size: int = 128
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
-    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=learning_rate)
+    # scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=learning_rate)
+    scheduler = CosineAnnealingLR(
+        optimizer, T_max=num_epochs, eta_min=learning_rate / 10
+    )
     criterion = nn.MSELoss()
 
     epoch = 0
@@ -146,8 +149,6 @@ def main(use_wandb: bool = False, eval_every: int = 10):
     for i, epoch in enumerate(range(num_epochs)):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
-            optimizer.zero_grad()
-
             loss, log_dict, _, _, _ = process_batch(
                 batch, model, criterion, optimizer, device, epoch
             )
@@ -157,9 +158,14 @@ def main(use_wandb: bool = False, eval_every: int = 10):
                 wandb.log(log_dict)
 
             # Backward pass and optimization
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+        before_lr = optimizer.param_groups[0]["lr"]
         scheduler.step()
+        after_lr = optimizer.param_groups[0]["lr"]
+        print("Epoch %d: SGD lr %.4f -> %.4f" % (epoch, before_lr, after_lr))
+
         if i % eval_every == 0:
             for batch in val_loader:
                 pipe = StableDiffusionPipeline.from_pretrained(
