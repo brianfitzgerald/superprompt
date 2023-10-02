@@ -39,7 +39,7 @@ def process_batch(batch, model, criterion, optimizer, device, epoch):
     outputs = model(mask_emb)
 
     loss = criterion(outputs, unmask_emb)
-    loss_formatted = "{:.4f}".format(loss.item())
+    loss_formatted = float(round(loss.item(), 4))
     log_dict = {
         "loss": loss_formatted,
         "epoch": epoch,
