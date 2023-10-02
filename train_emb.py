@@ -14,6 +14,8 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from diffusers.utils.import_utils import is_xformers_available
 import gc
+from torchinfo import summary
+import os
 
 
 from diffusers import (
@@ -44,13 +46,13 @@ def process_batch(batch, model, criterion, optimizer, device, epoch):
     return loss, log_dict, mask_emb, unmask_emb, outputs
 
 
-def main(use_wandb: bool = False, eval_every: int = 1, val_bs: int = 4):
+def main(use_wandb: bool = False, eval_every: int = 5):
     device = get_available_device()
 
-    clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-base-patch32").to(
+    clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14").to(
         device
     )
-    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14")
     max_clip_length = clip_model.config.max_position_embeddings
 
     nlp = spacy.load("en_core_web_sm")
@@ -73,7 +75,7 @@ def main(use_wandb: bool = False, eval_every: int = 1, val_bs: int = 4):
             padding="max_length",
             truncation=True,
         ).to(device)
-        unmasked_embeddings = clip_model(**unmasked_inputs).pooler_output
+        unmasked_embeddings = clip_model(**unmasked_inputs).last_hidden_state
 
         masked_prompts = [mask_non_nouns(prompt) for prompt in unmasked_prompts]
         masked_inputs = tokenizer(
@@ -83,7 +85,7 @@ def main(use_wandb: bool = False, eval_every: int = 1, val_bs: int = 4):
             padding="max_length",
             truncation=True,
         ).to(device)
-        masked_embeddings = clip_model(**masked_inputs).pooler_output
+        masked_embeddings = clip_model(**masked_inputs).last_hidden_state
         batch_dict = {
             "unmasked_embeddings": unmasked_embeddings,
             "masked_embeddings": masked_embeddings,
@@ -114,7 +116,9 @@ def main(use_wandb: bool = False, eval_every: int = 1, val_bs: int = 4):
     )
     dataset.set_format("torch")
 
+    print("Loading model..")
     model = EmbeddingAugModel(device=device)
+    print(summary(model))
 
     # display(model)
     model.train()
@@ -151,7 +155,9 @@ def main(use_wandb: bool = False, eval_every: int = 1, val_bs: int = 4):
         if i % eval_every == 0:
             for batch in val_loader:
                 pipe = StableDiffusionPipeline.from_pretrained(
-                    "runwayml/stable-diffusion-v1-5", torch_dtype=torch.float16
+                    "runwayml/stable-diffusion-v1-5",
+                    torch_dtype=torch.float16,
+                    safety_checker=None,
                 )
                 pipe = pipe.to("cuda")
                 loss, log_dict, mask_emb, _, outputs = process_batch(
@@ -162,6 +168,7 @@ def main(use_wandb: bool = False, eval_every: int = 1, val_bs: int = 4):
                     pipe.unet.enable_xformers_memory_efficient_attention()
 
                 generations = pipe(prompt_embeds=outputs).images
+                os.makedirs("out", exist_ok=True)
                 for i, generation in enumerate(generations):
                     log_dict[f"generation_{i}"] = generation
                     generation.save(f"out/generation_{i}.png")
