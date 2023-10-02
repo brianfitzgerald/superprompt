@@ -16,7 +16,7 @@ from diffusers.utils.import_utils import is_xformers_available
 import gc
 from torchinfo import summary
 import os
-
+from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 
 from diffusers import (
     StableDiffusionPipeline,
@@ -26,6 +26,8 @@ from utils import get_available_device
 
 if not spacy.util.is_package("en_core_web_sm"):
     spacy.cli.download("en_core_web_sm")
+
+torch.manual_seed(0)
 
 
 def process_batch(batch, model, criterion, optimizer, device, epoch):
@@ -106,12 +108,12 @@ def main(use_wandb: bool = False, eval_every: int = 10):
         "image_text_alignment_rating",
         "fidelity_rating",
     ]
-    dataset = load_dataset("THUDM/ImageRewardDB", "1k")
+    dataset = load_dataset("THUDM/ImageRewardDB", "4k")
     dataset = dataset.map(
         preprocess_dataset,
         batched=True,
         num_proc=1,
-        batch_size=48,
+        batch_size=96,
         remove_columns=remove_cols,
     )
     dataset.set_format("torch")
@@ -120,10 +122,15 @@ def main(use_wandb: bool = False, eval_every: int = 10):
     model = EmbeddingAugModel(device=device)
     print(summary(model))
 
-    # display(model)
     model.train()
-    num_epochs = 500
-    optimizer = AdamW(model.parameters(), lr=1e-5)
+
+    # Hyperparameters
+    num_epochs: int = 500
+    learning_rate: float = 1e-5
+    batch_size: int = 64
+
+    optimizer = AdamW(model.parameters(), lr=learning_rate)
+    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=learning_rate)
     criterion = nn.MSELoss()
 
     epoch = 0
@@ -133,7 +140,7 @@ def main(use_wandb: bool = False, eval_every: int = 10):
         wandb.watch(model)
 
     train_dataset, val_dataset = dataset["train"], dataset["validation"]
-    train_loader = DataLoader(train_dataset, batch_size=72)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size)
     val_loader = DataLoader(val_dataset, batch_size=4)
 
     for i, epoch in enumerate(range(num_epochs)):
@@ -152,6 +159,7 @@ def main(use_wandb: bool = False, eval_every: int = 10):
             # Backward pass and optimization
             loss.backward()
             optimizer.step()
+        scheduler.step()
         if i % eval_every == 0:
             for batch in val_loader:
                 pipe = StableDiffusionPipeline.from_pretrained(
