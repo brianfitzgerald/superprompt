@@ -10,7 +10,7 @@ class EmbeddingAugModel(nn.Module):
         self,
         n_tokens: int = 77,
         context_dim: int = 768,
-        layers: List[int] = [768, 1024, 1024, 768],
+        layers: List[int] = [2048, 1024, 2048, 4096],
         device="cpu",
     ):
         super().__init__()

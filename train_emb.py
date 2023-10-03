@@ -126,13 +126,13 @@ def main(use_wandb: bool = False, eval_every: int = 10):
 
     # Hyperparameters
     num_epochs: int = 200
-    learning_rate: float = 2e-5
-    batch_size: int = 128
+    learning_rate: float = 1e-4
+    batch_size: int = 256
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
     # scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=learning_rate)
     scheduler = CosineAnnealingLR(
-        optimizer, T_max=num_epochs, eta_min=learning_rate / 10
+        optimizer, T_max=num_epochs // 4, eta_min=learning_rate / 10
     )
     criterion = nn.MSELoss()
 
