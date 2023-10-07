@@ -11,11 +11,14 @@ import random
 import webdataset as wds
 import io
 from tqdm.auto import tqdm
-from latent_resizer import LatentResizer
+from models.latent_aug import LatentAugmenter
 import lpips
 from collections import defaultdict
 from PIL import Image
 from torchvision import transforms
+import fire
+from typing import List
+from torchinfo import summary
 
 
 def init_dataset(dataset_path, size=512):
@@ -91,6 +94,7 @@ def collate_fn(examples):
 def calculate_loss(
     model,
     batch,
+    device,
     vae,
     lpips,
     dtype=torch.float16,
@@ -98,8 +102,8 @@ def calculate_loss(
     lpips_weight=0.1,
     mse_latent_weight=0.01,
 ):
-    img_input = batch["img_input"].to(args.device, dtype=dtype)
-    img_target = batch["img_target"].to(args.device, dtype=dtype)
+    img_input = batch["img_input"].to(device, dtype=dtype)
+    img_target = batch["img_target"].to(device, dtype=dtype)
     latent_input = (
         vae.config.scaling_factor * vae.encode(img_input).latent_dist.sample()
     )
@@ -107,7 +111,7 @@ def calculate_loss(
         vae.config.scaling_factor * vae.encode(img_target).latent_dist.sample()
     )
     size = latent_target.shape[-2:]
-    with torch.autocast(args.device, dtype=dtype, enabled=dtype != torch.float32):
+    with torch.autocast(device, dtype=dtype, enabled=dtype != torch.float32):
         resized = model(latent_input, size=size)
     mse_latent = F.mse_loss(resized, latent_target)
     logs = {"mse_latent": mse_latent.detach().cpu().item()}
@@ -123,168 +127,78 @@ def calculate_loss(
     return loss, logs
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Latent interpolate trainer")
-    parser.add_argument(
-        "--train_path",
-        required=True,
-        action="append",
-        help="Training data path for VAE latents. Webdataset format.",
-    )
-    parser.add_argument(
-        "--test_path",
-        default=None,
-        required=False,
-        action="append",
-        help="Test data path for VAE latents. Webdataset format.",
-    )
-    parser.add_argument(
-        "--vae_path",
-        type=str,
-        required=True,
-        help="Path to VAE",
-    )
-    parser.add_argument(
-        "--test_steps",
-        type=int,
-        default=1000,
-        required=False,
-        help="Test interval",
-    )
-    parser.add_argument(
-        "--test_batches",
-        type=int,
-        default=10,
-        required=False,
-        help="Number of test batches",
-    )
-    parser.add_argument(
-        "--output_filename",
-        type=str,
-        default="sdxl_resizer.pt",
-        required=False,
-        help="Output filename",
-    )
-    parser.add_argument(
-        "--steps",
-        type=int,
-        default=100000,
-        help="Number of steps to train",
-    )
-    parser.add_argument(
-        "--save_steps",
-        type=int,
-        default=5000,
-        help="Save model every this step",
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=4,
-        help="Batch size",
-    )
-    parser.add_argument(
-        "--num_workers",
-        type=int,
-        default=4,
-        help="CPU workers",
-    )
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=2e-4,
-        help="Learning rate",
-    )
-    parser.add_argument(
-        "--dropout",
-        type=float,
-        default=0.0,
-        help="Droput rate",
-    )
-    parser.add_argument(
-        "--grad_clip",
-        type=float,
-        default=5.0,
-        help="Gradient clipping",
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cuda",
-        help="Device to use",
-    )
-    parser.add_argument(
-        "--resolution",
-        type=int,
-        default=256,
-        help="Image resolution",
-    )
-    parser.add_argument(
-        "--init_weights",
-        type=str,
-        default=None,
-        help="Resume training from weights file",
-    )
-    parser.add_argument(
-        "--fp16",
-        action="store_true",
-        help="Use fp16 precision",
-    )
-    parser.add_argument(
-        "--gradient_checkpointing",
-        action="store_true",
-        help="Enable gradient checkpointing for VAE",
-    )
-    args = parser.parse_args()
-    device = torch.device(args.device)
+def train(
+    train_path: List[str],
+    vae_path: str,
+    test_path: List[str] = None,
+    test_steps: int = 1000,
+    test_batches: int = 10,
+    output_filename: str = "sdxl_resizer.pt",
+    steps: int = 100000,
+    save_steps: int = 5000,
+    batch_size: int = 4,
+    num_workers: int = 4,
+    lr: float = 2e-4,
+    dropout: float = 0.0,
+    grad_clip: float = 5.0,
+    device: str = "cuda",
+    resolution: int = 256,
+    init_weights: str = None,
+    fp16: bool = False,
+    gradient_checkpointing: bool = False,
+    display_norm: bool = True,
+):
+    device = torch.device(device)
 
     vae_dtype = torch.float32
-    if args.fp16:
+    if fp16:
         vae_dtype = torch.float16
 
-    vae = AutoencoderKL.from_single_file(args.vae_path).to(device, dtype=vae_dtype)
+    vae = AutoencoderKL.from_single_file(vae_path).to(device, dtype=vae_dtype)
     # Use this scale even with SD 1.5
     vae.config.scaling_factor = 0.13025
 
     vae.train()
-    if args.gradient_checkpointing:
+    if gradient_checkpointing:
         vae.enable_gradient_checkpointing()
     lpips_fn = lpips.LPIPS(net="vgg").to(device=device, dtype=vae_dtype)
 
-    if args.init_weights:
-        model = LatentResizer.load_model(
-            args.init_weights,
-            device=args.device,
-            dropout=args.dropout,
+    if init_weights:
+        model = LatentAugmenter.load_model(
+            init_weights,
+            device=device,
+            dropout=dropout,
             dtype=torch.float32,
         )
     else:
-        model = LatentResizer(dropout=args.dropout).to(args.device)
+        model = LatentAugmenter(dropout=dropout).to(device)
 
-    train_dataset = init_dataset(args.train_path, size=args.resolution)
+    print(summary(model))
+
+    train_dataset = init_dataset(train_path, size=resolution)
     train_dataloader = DataLoader(
         train_dataset,
-        batch_size=args.batch_size,
+        batch_size=batch_size,
         collate_fn=collate_fn,
-        num_workers=args.num_workers,
+        num_workers=num_workers,
     )
-    if args.test_path:
-        test_dataset = init_dataset(args.test_path, size=args.resolution)
+    if test_path:
+        test_dataset = init_dataset(test_path, size=resolution)
         test_dataloader = DataLoader(
             test_dataset,
-            batch_size=args.batch_size,
+            batch_size=batch_size,
             collate_fn=collate_fn,
-            num_workers=args.num_workers,
+            num_workers=num_workers,
         )
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     scaler = torch.cuda.amp.GradScaler()
-    scheduler1 = torch.optim.lr_scheduler.LinearLR(
+    linear_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=0.001, total_iters=200
     )
-    scheduler2 = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.steps)
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, steps)
     scheduler = torch.optim.lr_scheduler.SequentialLR(
-        optimizer, schedulers=[scheduler1, scheduler2], milestones=[20]
+        optimizer, schedulers=[linear_scheduler, cosine_scheduler], milestones=[20]
     )
     params = 0
     for p in model.parameters():
@@ -293,11 +207,13 @@ if __name__ == "__main__":
     model.train()
     epoch = 0
     step = 0
-    progress_bar = tqdm(range(args.steps))
+    progress_bar = tqdm(range(steps))
     progress_bar.set_description("Steps")
-    train_fn = lambda batch: calculate_loss(model, batch, vae, lpips_fn, vae_dtype)
+    train_fn = lambda batch: calculate_loss(
+        model, batch, device, vae, lpips_fn, vae_dtype
+    )
 
-    while step < args.steps:
+    while step < steps:
         epoch += 1
         for batch in train_dataloader:
             if batch["img_input"].shape == batch["img_target"].shape:
@@ -308,30 +224,29 @@ if __name__ == "__main__":
             print(logs)
             progress_bar.set_postfix(loss=round(l, 2), lr=scheduler.get_last_lr()[0])
             scaler.scale(loss).backward()
-            if 0:
+            if display_norm:
                 total_norm = 0
                 for p in model.parameters():
                     param_norm = p.grad.data.norm(2)
                     total_norm += param_norm.item() ** 2
                 total_norm = total_norm ** (1.0 / 2)
                 print("norm", total_norm)
-            if args.grad_clip > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+            if grad_clip > 0:
+                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             scaler.step(optimizer)
             optimizer.zero_grad()
             scaler.update()
             progress_bar.update(1)
             scheduler.step()
-            if step >= args.steps:
+            if step >= steps:
                 break
-            if (step % args.save_steps) == 0:
-                base, ext = os.path.splitext(args.output_filename)
+            if (step % save_steps) == 0:
+                base, ext = os.path.splitext(output_filename)
                 save_filename = f"{base}-{step}{ext}"
                 torch.save(model.state_dict(), save_filename)
-            if args.test_path and (step % args.test_steps) == 0:
+            if test_path and (step % test_steps) == 0:
                 test_batches = 0
                 test_logs = defaultdict(float)
-                test_loss = 0
                 model.eval()
                 for batch in test_dataloader:
                     with torch.inference_mode():
@@ -339,13 +254,10 @@ if __name__ == "__main__":
                     test_batches += 1
                     for k in logs.keys():
                         test_logs[k] += logs[k]
-                    if test_batches >= args.test_batches:
+                    if test_batches >= test_batches:
                         break
                 model.train()
-                for k in test_logs.keys():
-                    writer.add_scalar(
-                        "{}/test".format(k), test_logs[k] / test_batches, step
-                    )
+                print(test_logs)
 
-    torch.save(model.state_dict(), args.output_filename)
+    torch.save(model.state_dict(), output_filename)
     print("Model saved")

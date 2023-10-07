@@ -12,3 +12,5 @@ spacy
 diffusers==0.21.4
 accelerate
 torchinfo
+lpips
+webdataset
