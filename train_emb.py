@@ -3,7 +3,7 @@ from typing import Dict
 from datasets import load_dataset
 import spacy
 import wandb
-from models.emb_aug_model import EmbeddingAugModel
+from superprompt.models.emb_seq2seq_linear import EmbeddingAugModel
 import torch.nn as nn
 import fire
 import torch

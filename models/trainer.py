@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.optim import AdamW
 import numpy as np
 import tqdm
-from models.model import BERT
+from superprompt.models.bert import BERT
 import wandb
 from transformers import BertTokenizer, DataCollatorForLanguageModeling
 import random

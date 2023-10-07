@@ -1,6 +1,6 @@
 from argparse import Namespace
 import gc
-from models.model import BERT
+from superprompt.models.bert import BERT
 from models.trainer import BERTTrainer
 import wandb
 from datasets import load_dataset
