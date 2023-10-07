@@ -157,3 +157,6 @@ wandb/*
 nohup.out
 *.pt
 out
+
+vae.safetensors
+*.zip

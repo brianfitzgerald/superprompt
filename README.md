@@ -1,7 +1,11 @@
 # SuperPrompt
 
-Sequence to sequence tasks for generating prompts for diffusion models.
+Set of models related to augmenting prompt-based image generation model inputs.
 
-BERT and RNN implementations.
+### Latent augmentation
 
-Partly based on https://github.com/bentrevett/pytorch-seq2seq/
+```bash
+
+wget http://images.cocodataset.org/zips/val2017.zip
+
+```

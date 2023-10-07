@@ -19,53 +19,40 @@ from torchvision import transforms
 import fire
 from typing import List
 from torchinfo import summary
+from enum import Enum
+from datasets import load_dataset
 
 
-def init_dataset(dataset_path, size=512):
-    shards = []
-    if type(dataset_path) not in (list, tuple):
-        dataset_path = [dataset_path]
-    for path in dataset_path:
-        for filename in os.listdir(path):
-            full_path = os.path.join(path, filename)
-            if full_path.endswith(".tar"):
-                shards.append(full_path)
-    print(f"{len(shards)} shards")
-
-    def preprocess(sample):
-        k = [k for k in sample.keys() if k in ["jpg", "png"]]
-        if len(k) == 0:
-            raise ValueError("Dataset images should be in jpg or png format")
-        k = k[0]
-        img = sample[k]
-
-        img = Image.open(io.BytesIO(img))
-        if not img.mode == "RGB":
+def preprocess_dataset(batch, size=256):
+    images_batch = batch["image"]
+    src_images, tgt_images = [], []
+    for i, image_set in enumerate(images_batch):
+        # dedupe ranks
+        ordered_indices = batch["rank"][i]
+        imgs_and_rank = sorted(zip(image_set, ordered_indices), key=lambda pair: pair[1])
+        for j, (img, _) in enumerate(imgs_and_rank):
             img = img.convert("RGB")
+            image_transforms = transforms.Compose(
+                [
+                    transforms.RandomCrop(size, pad_if_needed=True, padding_mode="reflect"),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.5], [0.5]),
+                ]
+            )
+            img = image_transforms(img)
+            if j == 0:
+                src_images.append(img)
+            if j == 1:
+                tgt_images.append(img)
+            if j > 1:
+                break
 
-        pil_image = img
+    ret_batch = {
+        "img_input": torch.stack(src_images),
+        "img_target": torch.stack(tgt_images),
+    }
 
-        image_transforms = transforms.Compose(
-            [
-                transforms.RandomCrop(size, pad_if_needed=True, padding_mode="reflect"),
-                transforms.ToTensor(),
-                transforms.Normalize([0.5], [0.5]),
-            ]
-        )
-
-        img = image_transforms(img)
-        examples = {}
-        examples["img"] = img
-        return examples
-
-    dataset = (
-        wds.WebDataset(shards, handler=wds.warn_and_continue, shardshuffle=True)
-        .repeat()
-        .shuffle(256)
-        .map(preprocess)
-    )
-    return dataset
-
+    return ret_batch
 
 def collate_fn(examples):
     imgs = [example["img"] for example in examples]
@@ -126,10 +113,13 @@ def calculate_loss(
     logs["loss"] = loss.detach().cpu().item()
     return loss, logs
 
+class Objective(Enum):
+    Upscale = "upscale"
+    augment = "augment"
 
 def train(
-    train_path: List[str],
-    vae_path: str,
+    vae_path: str = "runwayml/stable-diffusion-v1-5",
+    objective: str = "upscale",
     test_path: List[str] = None,
     test_steps: int = 1000,
     test_batches: int = 10,
@@ -149,12 +139,17 @@ def train(
     display_norm: bool = True,
 ):
     device = torch.device(device)
+    objective = Objective(objective)
+
+    dataset = load_dataset("THUDM/ImageRewardDB", "1k_group")
+    train_dataset = dataset["train"].map(preprocess_dataset, batched=True, batch_size=16)
+    test_dataset = dataset["test"].map(preprocess_dataset, batched=True, batch_size=16)
 
     vae_dtype = torch.float32
     if fp16:
         vae_dtype = torch.float16
 
-    vae = AutoencoderKL.from_single_file(vae_path).to(device, dtype=vae_dtype)
+    vae = AutoencoderKL.from_pretrained(vae_path, device=device, subfolder="vae")
     # Use this scale even with SD 1.5
     vae.config.scaling_factor = 0.13025
 
@@ -175,21 +170,19 @@ def train(
 
     print(summary(model))
 
-    train_dataset = init_dataset(train_path, size=resolution)
+
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         collate_fn=collate_fn,
         num_workers=num_workers,
     )
-    if test_path:
-        test_dataset = init_dataset(test_path, size=resolution)
-        test_dataloader = DataLoader(
-            test_dataset,
-            batch_size=batch_size,
-            collate_fn=collate_fn,
-            num_workers=num_workers,
-        )
+    test_dataloader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+        num_workers=num_workers,
+    )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     scaler = torch.cuda.amp.GradScaler()
@@ -261,3 +254,6 @@ def train(
 
     torch.save(model.state_dict(), output_filename)
     print("Model saved")
+
+if __name__ == "__main__":
+    fire.Fire(train)
