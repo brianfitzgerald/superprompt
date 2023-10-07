@@ -14,7 +14,7 @@ from tqdm.auto import tqdm
 from models.latent_aug import LatentAugmenter
 import lpips
 from collections import defaultdict
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from torchvision import transforms
 import fire
 from typing import List
@@ -24,11 +24,15 @@ from datasets import load_dataset
 
 
 def preprocess_dataset(batch, size=256):
-    images_batch = batch["image"]
+    try:
+        images_batch = batch["image"]
+    except UnidentifiedImageError:
+        print("UnidentifiedImageError")
+        return batch
     src_images, tgt_images = [], []
     for i, image_set in enumerate(images_batch):
-        # dedupe ranks
         ordered_indices = batch["rank"][i]
+        # TODO skip if we have ties - i.e. have two images with the same rank
         imgs_and_rank = sorted(zip(image_set, ordered_indices), key=lambda pair: pair[1])
         for j, (img, _) in enumerate(imgs_and_rank):
             img = img.convert("RGB")
