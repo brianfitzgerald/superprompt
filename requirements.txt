@@ -16,3 +16,4 @@ lpips
 webdataset
 einops
 omegaconf
+bitsandbytes

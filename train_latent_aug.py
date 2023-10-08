@@ -21,88 +21,43 @@ from typing import List
 from torchinfo import summary
 from enum import Enum
 from datasets import load_dataset
+import bitsandbytes as bnb
+
+size = 512
+to_tensor = transforms.ToTensor()
+image_transforms = transforms.Compose(
+    [
+        transforms.RandomCrop(size, pad_if_needed=True, padding_mode="reflect"),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5], [0.5]),
+    ]
+)
 
 
-def preprocess_dataset(batch, size=512):
-    try:
-        images_batch = batch["image"]
-    except UnidentifiedImageError:
-        print("UnidentifiedImageError")
-        return {
-            "src": [],
-            "tgt": [],
-        }
-    src_images, tgt_images = [], []
-    for i, image_set in enumerate(images_batch):
-        ordered_indices = batch["rank"][i]
-        # TODO skip if we have ties - i.e. have two images with the same rank
-        imgs_and_rank = sorted(
-            zip(image_set, ordered_indices), key=lambda pair: pair[1]
-        )
-        for j, (img, _) in enumerate(imgs_and_rank):
-            img = img.convert("RGB")
-            image_transforms = transforms.Compose(
-                [
-                    transforms.RandomCrop(
-                        size, pad_if_needed=True, padding_mode="reflect"
-                    ),
-                    transforms.ToTensor(),
-                    transforms.Normalize([0.5], [0.5]),
-                ]
-            )
-            img = image_transforms(img)
-            if j == 0:
-                src_images.append(img)
-            if j == 1:
-                tgt_images.append(img)
-            if j > 1:
-                break
+def collate_fn(batch):
+    processed_batch = {}
+    for label in ("img_better", "img_worse"):
+        imgs = [sample[label] for sample in batch]
+        imgs = [image_transforms(img) for img in imgs]
+        img_tensors = torch.stack(imgs)
+        processed_batch[label] = img_tensors
 
-    ret_batch = {
-        "src": src_images,
-        "tgt": tgt_images,
-    }
-
-    return ret_batch
-
-
-def collate_fn(examples):
-    imgs = [example["img"] for example in examples]
-    imgs = torch.stack(imgs)
-
-    scale = random.uniform(1.0, 2.1)
-    size = [int(round(imgs.shape[-2] * scale)), int(round(imgs.shape[-1] * scale))]
-    size[0] -= size[0] % 8
-    size[1] -= size[1] % 8
-    imgs_scaled = F.interpolate(imgs, size=size, mode="bilinear")
-
-    if scale < 1:
-        batch = {
-            "img_input": imgs_scaled,
-            "img_target": imgs,
-        }
-    else:
-        batch = {
-            "img_input": imgs,
-            "img_target": imgs_scaled,
-        }
-
-    return batch
+    return processed_batch
 
 
 def calculate_loss(
-    model,
+    model: LatentAugmenter,
     batch,
-    device,
-    vae,
-    lpips,
-    dtype=torch.float16,
-    mse_weight=1,
-    lpips_weight=0.1,
-    mse_latent_weight=0.01,
+    device: torch.device,
+    vae: AutoencoderKL,
+    lpips_fn,
+    dtype,
+    decoded_weight: float,
+    lpips_weight: float,
+    mse_latent_weight: float,
 ):
-    img_input = batch["img_input"].to(device, dtype=dtype)
-    img_target = batch["img_target"].to(device, dtype=dtype)
+    img_input = batch["img_worse"].to(device, dtype=dtype)
+    img_target = batch["img_better"].to(device, dtype=dtype)
     latent_input = (
         vae.config.scaling_factor * vae.encode(img_input).latent_dist.sample()
     )
@@ -110,25 +65,36 @@ def calculate_loss(
         vae.config.scaling_factor * vae.encode(img_target).latent_dist.sample()
     )
     size = latent_target.shape[-2:]
-    with torch.autocast(device, dtype=dtype, enabled=dtype != torch.float32):
-        resized = model(latent_input, size=size)
+    resized = model(latent_input, size=size)
     mse_latent = F.mse_loss(resized, latent_target)
-    logs = {"mse_latent": mse_latent.detach().cpu().item()}
-    decoded = vae.decode(resized / vae.config.scaling_factor)[0]
-    mse = F.mse_loss(decoded, img_target)
-    logs["mse"] = mse
-    loss = mse_weight * mse + mse_latent_weight * mse_latent
+    logs = {"mse_latent": mse_latent.cpu().item()}
+    loss = mse_latent_weight * mse_latent
+    if decoded_weight > 0:
+        decoded = vae.decode(resized / vae.config.scaling_factor)[0]
+        decoded_loss = F.mse_loss(decoded, img_target)
+        logs["mse"] = decoded_loss
+        loss = loss + decoded_weight * decoded_loss
     if lpips_weight > 0:
-        ploss = lpips(decoded, img_target).mean()
-        logs["lpips"] = ploss.detach().cpu().item()
-        loss = loss + lpips_weight * ploss
-    logs["loss"] = loss.detach().cpu().item()
+        lpips_loss = lpips_fn(decoded, img_target).mean()
+        logs["lpips"] = lpips_loss.cpu().item()
+        loss = loss + lpips_weight * lpips_loss
+    logs["loss"] = loss.cpu().item()
     return loss, logs
 
 
 class Objective(Enum):
     Upscale = "upscale"
     augment = "augment"
+
+
+def get_model_grad_norm(model):
+    total_norm = 0
+    for p in model.parameters():
+        if p.grad is not None and p.grad.data is not None:
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** (1.0 / 2)
+    return total_norm
 
 
 def train(
@@ -140,42 +106,50 @@ def train(
     output_filename: str = "sdxl_resizer.pt",
     steps: int = 100000,
     save_steps: int = 5000,
-    batch_size: int = 4,
-    num_workers: int = 4,
+    batch_size: int = 2,
+    num_dataloader_workers: int = 0,
     lr: float = 2e-4,
     dropout: float = 0.0,
     grad_clip: float = 5.0,
     device: str = "cuda",
-    resolution: int = 256,
     init_weights: str = None,
-    fp16: bool = False,
-    gradient_checkpointing: bool = False,
-    display_norm: bool = True,
+    fp16: bool = True,
+    use_bnb: bool = False,
 ):
     device = torch.device(device)
     objective = Objective(objective)
 
-    dataset = load_dataset("THUDM/ImageRewardDB", "1k_pair")
-    breakpoint()
-    fields_to_remove= ["image"]
-    train_dataset = dataset["train"].map(
-        preprocess_dataset, batched=True, batch_size=32, remove_columns=fields_to_remove
+    dataset = load_dataset(
+        "THUDM/ImageRewardDB", "2k_pair", verification_mode="no_checks"
     )
-    test_dataset = dataset["test"].map(
-        preprocess_dataset, batched=True, batch_size=32, remove_columns=fields_to_remove
+    train_dataset = dataset["train"]
+    test_dataset = dataset["test"]
+
+    train_dataloader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+        num_workers=num_dataloader_workers,
+    )
+    test_dataloader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+        num_workers=num_dataloader_workers,
     )
 
     vae_dtype = torch.float32
     if fp16:
         vae_dtype = torch.float16
 
-    vae = AutoencoderKL.from_pretrained(vae_path, device=device, subfolder="vae")
+    vae = (
+        AutoencoderKL.from_pretrained(vae_path, subfolder="vae")
+        .to(device)
+        .to(dtype=vae_dtype)
+    )
     # Use this scale even with SD 1.5
     vae.config.scaling_factor = 0.13025
 
-    vae.train()
-    if gradient_checkpointing:
-        vae.enable_gradient_checkpointing()
     lpips_fn = lpips.LPIPS(net="vgg").to(device=device, dtype=vae_dtype)
 
     if init_weights:
@@ -188,23 +162,16 @@ def train(
     else:
         model = LatentAugmenter(dropout=dropout).to(device)
 
+    model.train()
+    model.requires_grad_(True)
+
     print(summary(model))
 
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-        num_workers=num_workers,
-    )
-    test_dataloader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-        num_workers=num_workers,
-    )
-
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-    scaler = torch.cuda.amp.GradScaler()
+    if use_bnb:
+        optimizer = bnb.optim.Adam8bit(model.parameters(), lr=lr)
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    scaler = torch.cuda.amp.GradScaler(enabled=True)
     linear_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=0.001, total_iters=200
     )
@@ -212,44 +179,52 @@ def train(
     scheduler = torch.optim.lr_scheduler.SequentialLR(
         optimizer, schedulers=[linear_scheduler, cosine_scheduler], milestones=[20]
     )
-    params = 0
-    for p in model.parameters():
-        params += p.numel()
-    print(params, "Parameters")
+
     model.train()
     epoch = 0
     step = 0
     progress_bar = tqdm(range(steps))
     progress_bar.set_description("Steps")
-    train_fn = lambda batch: calculate_loss(
-        model, batch, device, vae, lpips_fn, vae_dtype
-    )
 
     while step < steps:
         epoch += 1
         for batch in train_dataloader:
-            if batch["img_input"].shape == batch["img_target"].shape:
-                continue
             step += 1
-            loss, logs = train_fn(batch)
-            l = loss.detach().cpu().item()
+
+            # get loss
+            with torch.autocast(device_type="cuda", dtype=torch.float16):
+                loss, logs = calculate_loss(
+                    model,
+                    batch,
+                    device,
+                    vae,
+                    lpips_fn,
+                    vae_dtype,
+                    lpips_weight=0,
+                    decoded_weight=0,
+                    mse_latent_weight=1,
+                )
+                loss_rounded = round(loss.cpu().item(), 2)
+                progress_bar.set_postfix(
+                    loss=loss_rounded, lr=scheduler.get_last_lr()[0]
+                )
+
             print(logs)
-            progress_bar.set_postfix(loss=round(l, 2), lr=scheduler.get_last_lr()[0])
             scaler.scale(loss).backward()
-            if display_norm:
-                total_norm = 0
-                for p in model.parameters():
-                    param_norm = p.grad.data.norm(2)
-                    total_norm += param_norm.item() ** 2
-                total_norm = total_norm ** (1.0 / 2)
-                print("norm", total_norm)
+            scaler.unscale_(optimizer)
+
             if grad_clip > 0:
                 nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+
+            print("total gradient norm:", get_model_grad_norm(model))
+
             scaler.step(optimizer)
-            optimizer.zero_grad()
             scaler.update()
+            optimizer.zero_grad()
+
             progress_bar.update(1)
             scheduler.step()
+
             if step >= steps:
                 break
             if (step % save_steps) == 0:
@@ -262,7 +237,16 @@ def train(
                 model.eval()
                 for batch in test_dataloader:
                     with torch.inference_mode():
-                        _, logs = loss, logs = train_fn(batch)
+                        _, logs = calculate_loss(
+                            model,
+                            batch,
+                            device,
+                            vae,
+                            lpips_fn,
+                            vae_dtype,
+                            lpips_weight=0,
+                            decoded_weight=0,
+                        )
                     test_batches += 1
                     for k in logs.keys():
                         test_logs[k] += logs[k]

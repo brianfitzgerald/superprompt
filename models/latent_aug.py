@@ -225,10 +225,6 @@ class LatentAugmenter(nn.Module):
         else:
             scale = size[-1] / x.shape[-1]
 
-        # Output is the same size as input
-        if size == x.shape[-2:]:
-            return x
-
         scale = torch.tensor([scale - 1], dtype=x.dtype).to(x.device).unsqueeze(0)
         emb = self.embed(scale)
 
