@@ -22,6 +22,7 @@ from torchinfo import summary
 from enum import Enum
 from datasets import load_dataset
 import bitsandbytes as bnb
+import wandb
 
 size = 512
 to_tensor = transforms.ToTensor()
@@ -104,20 +105,22 @@ def train(
     test_steps: int = 1000,
     test_batches: int = 10,
     output_filename: str = "sdxl_resizer.pt",
-    steps: int = 100000,
+    steps: int = 1e4,
     save_steps: int = 5000,
     batch_size: int = 2,
     num_dataloader_workers: int = 0,
     lr: float = 2e-4,
     dropout: float = 0.0,
-    grad_clip: float = 5.0,
+    clip_grad_val: float = 50.0,
     device: str = "cuda",
     init_weights: str = None,
     fp16: bool = True,
-    use_bnb: bool = False,
+    use_bnb: bool = True,
+    use_wandb: bool = False,
 ):
     device = torch.device(device)
     objective = Objective(objective)
+    steps = int(steps)
 
     dataset = load_dataset(
         "THUDM/ImageRewardDB", "2k_pair", verification_mode="no_checks"
@@ -165,6 +168,10 @@ def train(
     model.train()
     model.requires_grad_(True)
 
+    if use_wandb:
+        wandb.init(project="superprompt-latent-aug")
+        wandb.watch(model)
+
     print(summary(model))
 
     if use_bnb:
@@ -209,13 +216,16 @@ def train(
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
 
-            if grad_clip > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            if clip_grad_val > 0:
+                nn.utils.clip_grad_norm_(model.parameters(), clip_grad_val)
 
             norm_text, lr_text = round(get_model_grad_norm(model), 3), scheduler.get_last_lr()[0]
             progress_bar.set_postfix(
                 loss=loss_rounded, lr=lr_text, norm=norm_text
             )
+
+            if use_wandb:
+                wandb.log({**logs, "lr": lr_text, "norm": norm_text})
 
             scaler.step(optimizer)
             scaler.update()
@@ -243,8 +253,8 @@ def train(
                             vae,
                             lpips_fn,
                             vae_dtype,
-                            lpips_weight=0,
-                            decoded_weight=0,
+                            lpips_weight=1,
+                            decoded_weight=1,
                         )
                     test_batches += 1
                     for k in logs.keys():
@@ -253,6 +263,7 @@ def train(
                         break
                 model.train()
 
+    wandb.finish()
     torch.save(model.state_dict(), output_filename)
     print("Model saved")
 

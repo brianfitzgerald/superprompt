@@ -3,7 +3,8 @@ from typing import Dict
 from datasets import load_dataset
 import spacy
 import wandb
-from superprompt.models.emb_seq2seq_linear import EmbeddingAugModel
+from models.emb_aug_linear import EmbAugLinear
+from models.emb_retrieval import SiameseEmbRetriever
 import torch.nn as nn
 import fire
 import torch
@@ -17,12 +18,12 @@ import gc
 from torchinfo import summary
 import os
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR
-
 from diffusers import (
     StableDiffusionPipeline,
 )
 from transformers import AutoTokenizer, CLIPTextModel
 from utils import get_available_device
+from enum import Enum
 
 if not spacy.util.is_package("en_core_web_sm"):
     spacy.cli.download("en_core_web_sm")
@@ -47,8 +48,19 @@ def process_batch(batch, model, criterion, optimizer, device, epoch):
     }
     return loss, log_dict, mask_emb, unmask_emb, outputs
 
+class ModelChoice(Enum):
+    LINEAR = "aug_linear"
+    RETRIEVAL = "retrieval"
+    
+def main(use_wandb: bool = False, use_model: str = "retrieval", eval_every: int = 10):
 
-def main(use_wandb: bool = False, eval_every: int = 10):
+    model_choice = ModelChoice(use_model)
+    if model_choice == ModelChoice.LINEAR:
+        model = EmbAugLinear(device=device)
+    elif model_choice == ModelChoice.RETRIEVAL:
+        model = SiameseEmbRetriever(device=device)
+    print(summary(model))
+
     device = get_available_device()
 
     clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14").to(
@@ -119,8 +131,6 @@ def main(use_wandb: bool = False, eval_every: int = 10):
     dataset.set_format("torch")
 
     print("Loading model..")
-    model = EmbeddingAugModel(device=device)
-    print(summary(model))
 
     model.train()
 
@@ -130,7 +140,6 @@ def main(use_wandb: bool = False, eval_every: int = 10):
     batch_size: int = 256
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
-    # scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=learning_rate)
     scheduler = CosineAnnealingLR(
         optimizer, T_max=num_epochs // 4, eta_min=learning_rate / 10
     )

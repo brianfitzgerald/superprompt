@@ -5,7 +5,7 @@ from typing import List
 import torch.nn.functional as F
 
 
-class EmbeddingAugModel(nn.Module):
+class SiameseEmbRetriever(nn.Module):
     def __init__(
         self,
         n_tokens: int = 77,

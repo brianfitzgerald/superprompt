@@ -155,7 +155,7 @@ class LatentAugmenter(nn.Module):
         self.conv_in = nn.Conv2d(4, channels, 3, padding=1)
 
         self.channels = channels
-        embed_dim = 32
+        embed_dim = 16
         self.embed = nn.Sequential(
             nn.Linear(1, embed_dim),
             nn.SiLU(),
