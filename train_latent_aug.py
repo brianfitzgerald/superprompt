@@ -205,18 +205,17 @@ def train(
                     mse_latent_weight=1,
                 )
                 loss_rounded = round(loss.cpu().item(), 2)
-                progress_bar.set_postfix(
-                    loss=loss_rounded, lr=scheduler.get_last_lr()[0]
-                )
 
-            print(logs)
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
 
             if grad_clip > 0:
                 nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
 
-            print("total gradient norm:", get_model_grad_norm(model))
+            norm_text, lr_text = round(get_model_grad_norm(model), 3), scheduler.get_last_lr()[0]
+            progress_bar.set_postfix(
+                loss=loss_rounded, lr=lr_text, norm=norm_text
+            )
 
             scaler.step(optimizer)
             scaler.update()
@@ -253,7 +252,6 @@ def train(
                     if test_batches >= test_batches:
                         break
                 model.train()
-                print(test_logs)
 
     torch.save(model.state_dict(), output_filename)
     print("Model saved")
