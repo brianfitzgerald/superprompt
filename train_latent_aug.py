@@ -23,22 +23,29 @@ from enum import Enum
 from datasets import load_dataset
 
 
-def preprocess_dataset(batch, size=256):
+def preprocess_dataset(batch, size=512):
     try:
         images_batch = batch["image"]
     except UnidentifiedImageError:
         print("UnidentifiedImageError")
-        return batch
+        return {
+            "src": [],
+            "tgt": [],
+        }
     src_images, tgt_images = [], []
     for i, image_set in enumerate(images_batch):
         ordered_indices = batch["rank"][i]
         # TODO skip if we have ties - i.e. have two images with the same rank
-        imgs_and_rank = sorted(zip(image_set, ordered_indices), key=lambda pair: pair[1])
+        imgs_and_rank = sorted(
+            zip(image_set, ordered_indices), key=lambda pair: pair[1]
+        )
         for j, (img, _) in enumerate(imgs_and_rank):
             img = img.convert("RGB")
             image_transforms = transforms.Compose(
                 [
-                    transforms.RandomCrop(size, pad_if_needed=True, padding_mode="reflect"),
+                    transforms.RandomCrop(
+                        size, pad_if_needed=True, padding_mode="reflect"
+                    ),
                     transforms.ToTensor(),
                     transforms.Normalize([0.5], [0.5]),
                 ]
@@ -52,11 +59,12 @@ def preprocess_dataset(batch, size=256):
                 break
 
     ret_batch = {
-        "img_input": torch.stack(src_images),
-        "img_target": torch.stack(tgt_images),
+        "src": src_images,
+        "tgt": tgt_images,
     }
 
     return ret_batch
+
 
 def collate_fn(examples):
     imgs = [example["img"] for example in examples]
@@ -117,9 +125,11 @@ def calculate_loss(
     logs["loss"] = loss.detach().cpu().item()
     return loss, logs
 
+
 class Objective(Enum):
     Upscale = "upscale"
     augment = "augment"
+
 
 def train(
     vae_path: str = "runwayml/stable-diffusion-v1-5",
@@ -145,9 +155,15 @@ def train(
     device = torch.device(device)
     objective = Objective(objective)
 
-    dataset = load_dataset("THUDM/ImageRewardDB", "1k_group")
-    train_dataset = dataset["train"].map(preprocess_dataset, batched=True, batch_size=16)
-    test_dataset = dataset["test"].map(preprocess_dataset, batched=True, batch_size=16)
+    dataset = load_dataset("THUDM/ImageRewardDB", "1k_pair")
+    breakpoint()
+    fields_to_remove= ["image"]
+    train_dataset = dataset["train"].map(
+        preprocess_dataset, batched=True, batch_size=32, remove_columns=fields_to_remove
+    )
+    test_dataset = dataset["test"].map(
+        preprocess_dataset, batched=True, batch_size=32, remove_columns=fields_to_remove
+    )
 
     vae_dtype = torch.float32
     if fp16:
@@ -173,7 +189,6 @@ def train(
         model = LatentAugmenter(dropout=dropout).to(device)
 
     print(summary(model))
-
 
     train_dataloader = DataLoader(
         train_dataset,
@@ -258,6 +273,7 @@ def train(
 
     torch.save(model.state_dict(), output_filename)
     print("Model saved")
+
 
 if __name__ == "__main__":
     fire.Fire(train)
