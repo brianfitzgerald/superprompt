@@ -1,51 +1,24 @@
 import torch
 import torch.nn as nn
-import os
-from typing import List
 import torch.nn.functional as F
-
+from transformers.models.clip.modeling_clip import CLIPTextModel, CLIPEncoder
+import copy
 
 class SiameseEmbRetriever(nn.Module):
-    def __init__(
-        self,
-        n_tokens: int = 77,
-        context_dim: int = 768,
-        layers: List[int] = [2048, 1024, 2048, 4096],
-        device="cpu",
-    ):
+    def __init__(self, clip_model: CLIPTextModel):
         super().__init__()
-        self.n_tokens = n_tokens
-        self.context_dim = context_dim
+        self.unfrozen_clip_encoder: CLIPEncoder = copy.deepcopy(clip_model.text_model.encoder)
+        self.unfrozen_clip_encoder.train()
+        self.unfrozen_clip_encoder.requires_grad_(True)
 
-        self.dropout = nn.Dropout(0.1)
-        fc_layers = []
-        fc_layers.append(torch.nn.Linear(context_dim * n_tokens, layers[0]))
-        for _, (in_size, out_size) in enumerate(zip(layers[:-1], layers[1:])):
-            fc_layers.append(torch.nn.Linear(in_size, out_size))
-            fc_layers.append(torch.nn.ReLU())
-        fc_layers.append(torch.nn.Linear(layers[-1], context_dim * n_tokens))
-        self.embed_fc = torch.nn.Sequential(*fc_layers).to(device)
-        self.bn = nn.BatchNorm1d(context_dim).to(device)
 
-    def forward(self, x):
-        x = x.reshape(x.shape[0], -1)
-        if self.training:
-            x = self.dropout(x)
-        x = self.embed_fc(x)
-        x = x.reshape(x.shape[0], self.n_tokens, self.context_dim)
-        return x
+    def forward(self, masked_emb: torch.Tensor):
+        # x is the last hidden layer of clip text encoder
+        emb_enc = self.unfrozen_clip_encoder(masked_emb).last_hidden_state
+        return emb_enc
 
-    def grad_norm_sum(self):
-        grads = [
-            param.grad.detach().flatten()
-            for param in self.parameters()
-            if param.grad is not None and param.requires_grad
-        ]
-        total_norm = torch.cat(grads).norm()
-        return total_norm.item()
+    def loss_fn(self, masked_emb: torch.Tensor, unmasked_emb: torch.Tensor):
+        masked_emb = self.forward(masked_emb)
 
-    def weights_biases_sum(self):
-        total_weight_sum = 0.0
-        for param in self.parameters():
-            total_weight_sum += param.data.sum().item()
-        return total_weight_sum
+        loss = F.mse_loss(masked_emb, unmasked_emb)
+        return loss

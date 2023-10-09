@@ -45,3 +45,19 @@ sample_translate_pairs = [
     ("Ich bin ein Mann mit einem Pferd", "I am a man with a horse"),
     ("Ich möchte den Gipfel des Berges sehen", "I wish to see the top of the mountain"),
 ]
+
+def get_model_grad_norm(model):
+    total_norm = 0
+    for p in model.parameters():
+        if p.grad is not None and p.grad.data is not None:
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** (1.0 / 2)
+    return total_norm
+
+
+def weights_biases_sum(model):
+    total_weight_sum = 0.0
+    for param in model.parameters():
+        total_weight_sum += param.data.sum().item()
+    return total_weight_sum

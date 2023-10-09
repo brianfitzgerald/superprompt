@@ -23,6 +23,7 @@ from enum import Enum
 from datasets import load_dataset
 import bitsandbytes as bnb
 import wandb
+from utils import get_model_grad_norm
 
 size = 512
 to_tensor = transforms.ToTensor()
@@ -87,15 +88,6 @@ class Objective(Enum):
     Upscale = "upscale"
     augment = "augment"
 
-
-def get_model_grad_norm(model):
-    total_norm = 0
-    for p in model.parameters():
-        if p.grad is not None and p.grad.data is not None:
-            param_norm = p.grad.data.norm(2)
-            total_norm += param_norm.item() ** 2
-    total_norm = total_norm ** (1.0 / 2)
-    return total_norm
 
 
 def train(

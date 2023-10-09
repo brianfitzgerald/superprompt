@@ -31,13 +31,15 @@ if not spacy.util.is_package("en_core_web_sm"):
 torch.manual_seed(0)
 
 
-def process_batch(batch, model, criterion, optimizer, device, epoch):
+def process_batch(
+    batch, model: SiameseEmbRetriever, criterion, optimizer, device, epoch
+):
     mask_emb, unmask_emb = (
         batch["masked_embeddings"].to(device),
         batch["unmasked_embeddings"].to(device),
     )
 
-    outputs = model(mask_emb)
+    outputs = model.loss_fn(mask_emb, unmask_emb)
 
     loss = criterion(outputs, unmask_emb)
     loss_formatted = float(round(loss.item(), 4))
@@ -48,19 +50,8 @@ def process_batch(batch, model, criterion, optimizer, device, epoch):
     }
     return loss, log_dict, mask_emb, unmask_emb, outputs
 
-class ModelChoice(Enum):
-    LINEAR = "aug_linear"
-    RETRIEVAL = "retrieval"
-    
-def main(use_wandb: bool = False, use_model: str = "retrieval", eval_every: int = 10):
 
-    model_choice = ModelChoice(use_model)
-    if model_choice == ModelChoice.LINEAR:
-        model = EmbAugLinear(device=device)
-    elif model_choice == ModelChoice.RETRIEVAL:
-        model = SiameseEmbRetriever(device=device)
-    print(summary(model))
-
+def main(use_wandb: bool = False, eval_every: int = 1000000):
     device = get_available_device()
 
     clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14").to(
@@ -68,6 +59,9 @@ def main(use_wandb: bool = False, use_model: str = "retrieval", eval_every: int 
     )
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14")
     max_clip_length = clip_model.config.max_position_embeddings
+
+    model = SiameseEmbRetriever(clip_model)
+    print(summary(model))
 
     nlp = spacy.load("en_core_web_sm")
 
@@ -80,7 +74,7 @@ def main(use_wandb: bool = False, use_model: str = "retrieval", eval_every: int 
                 masked_tokens.append(token.text)
         return " ".join(masked_tokens)
 
-    def preprocess_dataset(batch: Dict):
+    def preprocess_dataset(batch):
         unmasked_prompts = batch["prompt"]
         unmasked_inputs = tokenizer(
             text=unmasked_prompts,
@@ -120,15 +114,18 @@ def main(use_wandb: bool = False, use_model: str = "retrieval", eval_every: int 
         "image_text_alignment_rating",
         "fidelity_rating",
     ]
-    dataset = load_dataset("THUDM/ImageRewardDB", "4k")
+    dataset = load_dataset("THUDM/ImageRewardDB", "1k", verification_mode="no_checks")
+    dataset.set_format("torch")
     dataset = dataset.map(
         preprocess_dataset,
+        cache_file_names={"train": "train_cache", "validation": "val_cache", "test": "test_cache"},
         batched=True,
         num_proc=1,
+        drop_last_batch=True,
         batch_size=96,
         remove_columns=remove_cols,
     )
-    dataset.set_format("torch")
+    dataset.save_to_disk("image_reward_processed")
 
     print("Loading model..")
 
@@ -136,8 +133,8 @@ def main(use_wandb: bool = False, use_model: str = "retrieval", eval_every: int 
 
     # Hyperparameters
     num_epochs: int = 200
-    learning_rate: float = 1e-4
-    batch_size: int = 256
+    learning_rate: float = 1e-5
+    batch_size: int = 64
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
     scheduler = CosineAnnealingLR(
@@ -175,32 +172,32 @@ def main(use_wandb: bool = False, use_model: str = "retrieval", eval_every: int 
         after_lr = optimizer.param_groups[0]["lr"]
         print("Epoch %d: SGD lr %.4f -> %.4f" % (epoch, before_lr, after_lr))
 
-        if i % eval_every == 0:
-            for batch in val_loader:
-                pipe = StableDiffusionPipeline.from_pretrained(
-                    "runwayml/stable-diffusion-v1-5",
-                    torch_dtype=torch.float16,
-                    safety_checker=None,
-                )
-                pipe = pipe.to("cuda")
-                loss, log_dict, mask_emb, _, outputs = process_batch(
-                    batch, model, criterion, optimizer, device, epoch
-                )
+        # if i % eval_every == 0:
+        #     for batch in val_loader:
+        #         pipe = StableDiffusionPipeline.from_pretrained(
+        #             "runwayml/stable-diffusion-v1-5",
+        #             torch_dtype=torch.float16,
+        #             safety_checker=None,
+        #         )
+        #         pipe = pipe.to("cuda")
+        #         loss, log_dict, mask_emb, _, outputs = process_batch(
+        #             batch, model, criterion, optimizer, device, epoch
+        #         )
 
-                if is_xformers_available():
-                    pipe.unet.enable_xformers_memory_efficient_attention()
+        #         if is_xformers_available():
+        #             pipe.unet.enable_xformers_memory_efficient_attention()
 
-                generations = pipe(prompt_embeds=outputs).images
-                os.makedirs("out", exist_ok=True)
-                for i, generation in enumerate(generations):
-                    log_dict[f"generation_{i}"] = generation
-                    generation.save(f"out/generation_{i}.png")
+        #         generations = pipe(prompt_embeds=outputs).images
+        #         os.makedirs("out", exist_ok=True)
+        #         for i, generation in enumerate(generations):
+        #             log_dict[f"generation_{i}"] = generation
+        #             generation.save(f"out/generation_{i}.png")
 
-                del pipe
-                gc.collect()
-                torch.cuda.empty_cache()
+        #         del pipe
+        #         gc.collect()
+        #         torch.cuda.empty_cache()
 
-                break
+        #         break
 
     wandb.finish()
 

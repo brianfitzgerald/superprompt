@@ -160,3 +160,6 @@ out
 
 vae.safetensors
 *.zip
+
+image_reward_processed
+*_cache
