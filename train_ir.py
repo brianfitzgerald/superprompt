@@ -35,7 +35,9 @@ torch.manual_seed(0)
 
 
 def loss_fn_emb_aug(
-    batch: Dict, device: torch.device, model: CLIPEmbeddingAugmenter, 
+    batch: Dict,
+    device: torch.device,
+    model: CLIPEmbeddingAugmenter,
 ):
     mask_emb, unmask_emb = (
         batch["masked_embeddings"].to(device),
@@ -47,14 +49,8 @@ def loss_fn_emb_aug(
 
     return loss, model_out
 
-class Objective(Enum):
-    CLIP_AUG = "clip_aug"
-    IR = "ir"
 
-def main(objective: str = Objective.IR.value, use_wandb: bool = False, eval_every: int = 25):
-
-    objective = Objective(objective)
-    
+def main(use_wandb: bool = False, eval_every: int = 25):
     device = get_available_device()
 
     clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14").to(
@@ -62,9 +58,6 @@ def main(objective: str = Objective.IR.value, use_wandb: bool = False, eval_ever
     )
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14")
     max_clip_length = clip_model.config.max_position_embeddings
-
-    model = CLIPEmbeddingAugmenter(clip_model)
-    print(summary(model))
 
     nlp = spacy.load("en_core_web_sm")
 
@@ -75,17 +68,19 @@ def main(objective: str = Objective.IR.value, use_wandb: bool = False, eval_ever
         for token in doc:
             if token.pos_ in pos or (token.dep_ == "nsubj" and token.pos_ == "VERB"):
                 non_adj_tokens.append(token.text)
+            else:
+                adj_tokens.append(token.text)
         return " ".join(non_adj_tokens), " ".join(adj_tokens)
 
     def preprocess_dataset(batch):
         prompts = batch["prompt"]
 
         masked_out = [mask_non_nouns(prompt) for prompt in prompts]
-        adj_tokens = [x[1] for x in masked_out]
-        non_adj_tokens = [x[0] for x in masked_out]
+        adj_prompts = [x[1] for x in masked_out]
+        non_adj_prompts = [x[0] for x in masked_out]
 
         adj_input = tokenizer(
-            text=adj_tokens,
+            text=adj_prompts,
             return_tensors="pt",
             max_length=max_clip_length,
             padding="max_length",
@@ -95,7 +90,7 @@ def main(objective: str = Objective.IR.value, use_wandb: bool = False, eval_ever
         adj_embeddings = adj_clip_out.last_hidden_state
 
         non_adj_input = tokenizer(
-            text=non_adj_tokens,
+            text=non_adj_prompts,
             return_tensors="pt",
             max_length=max_clip_length,
             padding="max_length",
@@ -122,22 +117,29 @@ def main(objective: str = Objective.IR.value, use_wandb: bool = False, eval_ever
         "image_text_alignment_rating",
         "fidelity_rating",
     ]
-    dataset = load_dataset("THUDM/ImageRewardDB", "4k", verification_mode="no_checks")
+    dataset = load_dataset("poloclub/diffusiondb", "large_text_only", split="train")
     dataset.set_format("torch")
-    cache_dir = Path("ds_cache").mkdir(exist_ok=True)
+    cache_dir = "ds_cache"
+    Path(cache_dir).mkdir(exist_ok=True)
     dataset = dataset.map(
         preprocess_dataset,
-        cache_file_names={"train": f"{cache_dir}/train", "validation": f"{cache_dir}/validation", "test": f"{cache_dir}/test"},
+        cache_file_names={
+            "train": f"{cache_dir}/train",
+            "validation": f"{cache_dir}/validation",
+            "test": f"{cache_dir}/test",
+        },
         batched=True,
         num_proc=1,
         drop_last_batch=True,
-        batch_size=96,
+        batch_size=128,
         remove_columns=remove_cols,
     )
     # dataset.save_to_disk("image_reward_processed")
 
     print("Loading model..")
 
+    model = CLIPEmbeddingAugmenter(clip_model)
+    print(summary(model))
     model.train()
 
     # Hyperparameters
@@ -161,10 +163,7 @@ def main(objective: str = Objective.IR.value, use_wandb: bool = False, eval_ever
     for epoch in range(num_epochs):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
-
-            loss, model_out = loss_fn_emb_aug(
-                batch, device, model
-            )
+            loss, model_out = loss_fn_emb_aug(batch, device, model)
 
             log_dict = {
                 "loss": loss.item(),
@@ -193,9 +192,7 @@ def main(objective: str = Objective.IR.value, use_wandb: bool = False, eval_ever
                     safety_checker=None,
                 )
                 pipe = pipe.to("cuda")
-                loss, model_out = loss_fn_emb_aug(
-                    batch, device, model
-                )
+                loss, model_out = loss_fn_emb_aug(batch, device, model)
 
                 if is_xformers_available():
                     pipe.unet.enable_xformers_memory_efficient_attention()
