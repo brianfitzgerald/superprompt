@@ -4,7 +4,7 @@ from datasets import load_dataset
 import spacy
 import wandb
 from models.emb_aug_linear import EmbAugLinear
-from models.emb_retrieval import SiameseEmbRetriever
+from superprompt.models.clip_emb_aug import CLIPEmbeddingAugmenter
 import torch.nn as nn
 import fire
 import torch
@@ -32,7 +32,7 @@ torch.manual_seed(0)
 
 
 def process_batch(
-    batch, model: SiameseEmbRetriever, criterion, optimizer, device, epoch
+    batch, model: CLIPEmbeddingAugmenter, criterion, optimizer, device, epoch
 ):
     mask_emb, unmask_emb = (
         batch["masked_embeddings"].to(device),
@@ -60,7 +60,7 @@ def main(use_wandb: bool = False, eval_every: int = 100):
     tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14")
     max_clip_length = clip_model.config.max_position_embeddings
 
-    model = SiameseEmbRetriever(clip_model)
+    model = CLIPEmbeddingAugmenter(clip_model)
     print(summary(model))
 
     nlp = spacy.load("en_core_web_sm")

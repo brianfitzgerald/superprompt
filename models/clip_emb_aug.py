@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from transformers.models.clip.modeling_clip import CLIPTextModel, CLIPEncoder
 import copy
 
-class SiameseEmbRetriever(nn.Module):
+class CLIPEmbeddingAugmenter(nn.Module):
     def __init__(self, clip_model: CLIPTextModel):
         super().__init__()
         self.unfrozen_clip_encoder: CLIPEncoder = copy.deepcopy(clip_model.text_model.encoder)
