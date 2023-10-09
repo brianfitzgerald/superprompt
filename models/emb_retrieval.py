@@ -11,14 +11,11 @@ class SiameseEmbRetriever(nn.Module):
         self.unfrozen_clip_encoder.train()
         self.unfrozen_clip_encoder.requires_grad_(True)
 
-
     def forward(self, masked_emb: torch.Tensor):
         # x is the last hidden layer of clip text encoder
         emb_enc = self.unfrozen_clip_encoder(masked_emb).last_hidden_state
         return emb_enc
 
-    def loss_fn(self, masked_emb: torch.Tensor, unmasked_emb: torch.Tensor):
-        masked_emb = self.forward(masked_emb)
-
-        loss = F.mse_loss(masked_emb, unmasked_emb)
+    def loss_fn(self, emb_enc: torch.Tensor, unmasked_emb: torch.Tensor):
+        loss = F.mse_loss(emb_enc, unmasked_emb)
         return loss

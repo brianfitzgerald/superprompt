@@ -39,19 +39,19 @@ def process_batch(
         batch["unmasked_embeddings"].to(device),
     )
 
-    outputs = model.loss_fn(mask_emb, unmask_emb)
+    mask_emb_enc = model(mask_emb)
+    loss = model.loss_fn(mask_emb_enc, unmask_emb)
 
-    loss = criterion(outputs, unmask_emb)
     loss_formatted = float(round(loss.item(), 4))
     log_dict = {
         "loss": loss_formatted,
         "epoch": epoch,
         "lr": optimizer.param_groups[0]["lr"],
     }
-    return loss, log_dict, mask_emb, unmask_emb, outputs
+    return loss, log_dict, mask_emb, unmask_emb, mask_emb_enc
 
 
-def main(use_wandb: bool = False, eval_every: int = 1000000):
+def main(use_wandb: bool = False, eval_every: int = 100):
     device = get_available_device()
 
     clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14").to(
@@ -114,7 +114,7 @@ def main(use_wandb: bool = False, eval_every: int = 1000000):
         "image_text_alignment_rating",
         "fidelity_rating",
     ]
-    dataset = load_dataset("THUDM/ImageRewardDB", "1k", verification_mode="no_checks")
+    dataset = load_dataset("THUDM/ImageRewardDB", "4k", verification_mode="no_checks")
     dataset.set_format("torch")
     dataset = dataset.map(
         preprocess_dataset,
@@ -125,7 +125,7 @@ def main(use_wandb: bool = False, eval_every: int = 1000000):
         batch_size=96,
         remove_columns=remove_cols,
     )
-    dataset.save_to_disk("image_reward_processed")
+    # dataset.save_to_disk("image_reward_processed")
 
     print("Loading model..")
 
@@ -172,32 +172,41 @@ def main(use_wandb: bool = False, eval_every: int = 1000000):
         after_lr = optimizer.param_groups[0]["lr"]
         print("Epoch %d: SGD lr %.4f -> %.4f" % (epoch, before_lr, after_lr))
 
-        # if i % eval_every == 0:
-        #     for batch in val_loader:
-        #         pipe = StableDiffusionPipeline.from_pretrained(
-        #             "runwayml/stable-diffusion-v1-5",
-        #             torch_dtype=torch.float16,
-        #             safety_checker=None,
-        #         )
-        #         pipe = pipe.to("cuda")
-        #         loss, log_dict, mask_emb, _, outputs = process_batch(
-        #             batch, model, criterion, optimizer, device, epoch
-        #         )
+        if i % eval_every == 0:
+            for batch in val_loader:
+                pipe = StableDiffusionPipeline.from_pretrained(
+                    "runwayml/stable-diffusion-v1-5",
+                    torch_dtype=torch.float16,
+                    safety_checker=None,
+                )
+                pipe = pipe.to("cuda")
+                loss, log_dict, mask_emb, unmask_emb, mask_emb_enc = process_batch(
+                    batch, model, criterion, optimizer, device, epoch
+                )
 
-        #         if is_xformers_available():
-        #             pipe.unet.enable_xformers_memory_efficient_attention()
+                if is_xformers_available():
+                    pipe.unet.enable_xformers_memory_efficient_attention()
 
-        #         generations = pipe(prompt_embeds=outputs).images
-        #         os.makedirs("out", exist_ok=True)
-        #         for i, generation in enumerate(generations):
-        #             log_dict[f"generation_{i}"] = generation
-        #             generation.save(f"out/generation_{i}.png")
+                log_dict["unmasked"] = []
+                log_dict["encoded"] = []
+                for key in ("unmasked", "encoded"):
+                    print(f"Generating {key} images...")
+                    embeds = unmask_emb if key == "unmasked" else mask_emb_enc
+                    generations = pipe(prompt_embeds=embeds).images
+                    os.makedirs("out", exist_ok=True)
+                    for i, generation in enumerate(generations):
+                        generation.save(f"out/{key}_{i}.png")
+                        if use_wandb:
+                            log_dict[key].append(wandb.Image(generation))
 
-        #         del pipe
-        #         gc.collect()
-        #         torch.cuda.empty_cache()
+                if use_wandb:
+                    wandb.log(log_dict)
 
-        #         break
+                del pipe
+                gc.collect()
+                torch.cuda.empty_cache()
+
+                break
 
     wandb.finish()
 
