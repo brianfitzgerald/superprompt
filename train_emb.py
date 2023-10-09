@@ -3,8 +3,7 @@ from typing import Dict
 from datasets import load_dataset
 import spacy
 import wandb
-from models.emb_aug_linear import EmbAugLinear
-from superprompt.models.clip_emb_aug import CLIPEmbeddingAugmenter
+from models.clip_emb_aug import CLIPEmbeddingAugmenter
 import torch.nn as nn
 import fire
 import torch
@@ -83,7 +82,9 @@ def main(use_wandb: bool = False, eval_every: int = 100):
             padding="max_length",
             truncation=True,
         ).to(device)
-        unmasked_embeddings = clip_model(**unmasked_inputs).last_hidden_state
+        unmasked_clip_out = clip_model(**unmasked_inputs)
+        unmasked_embeddings = unmasked_clip_out.last_hidden_state
+
 
         masked_prompts = [mask_non_nouns(prompt) for prompt in unmasked_prompts]
         masked_inputs = tokenizer(
@@ -93,7 +94,8 @@ def main(use_wandb: bool = False, eval_every: int = 100):
             padding="max_length",
             truncation=True,
         ).to(device)
-        masked_embeddings = clip_model(**masked_inputs).last_hidden_state
+        masked_clip_out = clip_model(**masked_inputs)
+        masked_embeddings = masked_clip_out.last_hidden_state
         batch_dict = {
             "unmasked_embeddings": unmasked_embeddings,
             "masked_embeddings": masked_embeddings,
