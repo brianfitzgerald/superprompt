@@ -31,7 +31,7 @@ torch.manual_seed(0)
 
 
 def process_batch(
-    batch, model: CLIPEmbeddingAugmenter, criterion, optimizer, device, epoch
+    batch, model: CLIPEmbeddingAugmenter, optimizer, device, epoch
 ):
     mask_emb, unmask_emb = (
         batch["masked_embeddings"].to(device),
@@ -50,7 +50,7 @@ def process_batch(
     return loss, log_dict, mask_emb, unmask_emb, mask_emb_enc
 
 
-def main(use_wandb: bool = False, eval_every: int = 100):
+def main(use_wandb: bool = False, eval_every: int = 25):
     device = get_available_device()
 
     clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14").to(
@@ -142,7 +142,6 @@ def main(use_wandb: bool = False, eval_every: int = 100):
     scheduler = CosineAnnealingLR(
         optimizer, T_max=num_epochs // 4, eta_min=learning_rate / 10
     )
-    criterion = nn.MSELoss()
 
     epoch = 0
 
@@ -158,7 +157,7 @@ def main(use_wandb: bool = False, eval_every: int = 100):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
             loss, log_dict, _, _, _ = process_batch(
-                batch, model, criterion, optimizer, device, epoch
+                batch, model, optimizer, device, epoch
             )
 
             train_iter.set_postfix(log=log_dict)
@@ -183,7 +182,7 @@ def main(use_wandb: bool = False, eval_every: int = 100):
                 )
                 pipe = pipe.to("cuda")
                 loss, log_dict, mask_emb, unmask_emb, mask_emb_enc = process_batch(
-                    batch, model, criterion, optimizer, device, epoch
+                    batch, model, optimizer, device, epoch
                 )
 
                 if is_xformers_available():
