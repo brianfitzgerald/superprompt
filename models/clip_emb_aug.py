@@ -16,7 +16,3 @@ class CLIPEmbeddingAugmenter(nn.Module):
         # x is the last hidden layer of clip text encoder
         emb_enc = self.unfrozen_encoder_layer(masked_emb, None, None)[0]
         return emb_enc
-
-    def loss_fn(self, emb_enc: torch.Tensor, unmasked_emb: torch.Tensor):
-        loss = F.mse_loss(emb_enc, unmasked_emb)
-        return loss

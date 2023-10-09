@@ -23,6 +23,8 @@ from diffusers import (
 from transformers import AutoTokenizer, CLIPTextModel
 from utils import get_available_device
 from enum import Enum
+from typing import Dict
+import torch.nn.functional as F
 
 if not spacy.util.is_package("en_core_web_sm"):
     spacy.cli.download("en_core_web_sm")
@@ -30,24 +32,18 @@ if not spacy.util.is_package("en_core_web_sm"):
 torch.manual_seed(0)
 
 
-def process_batch(
-    batch, model: CLIPEmbeddingAugmenter, optimizer, device, epoch
+def loss_fn_emb_aug(
+    batch: Dict, device: torch.device, model: CLIPEmbeddingAugmenter, 
 ):
     mask_emb, unmask_emb = (
         batch["masked_embeddings"].to(device),
         batch["unmasked_embeddings"].to(device),
     )
 
-    mask_emb_enc = model(mask_emb)
-    loss = model.loss_fn(mask_emb_enc, unmask_emb)
+    model_out = model(mask_emb)
+    loss = F.mse_loss(model_out, unmask_emb)
 
-    loss_formatted = float(round(loss.item(), 4))
-    log_dict = {
-        "loss": loss_formatted,
-        "epoch": epoch,
-        "lr": optimizer.param_groups[0]["lr"],
-    }
-    return loss, log_dict, mask_emb, unmask_emb, mask_emb_enc
+    return loss, model_out
 
 
 def main(use_wandb: bool = False, eval_every: int = 25):
@@ -143,8 +139,6 @@ def main(use_wandb: bool = False, eval_every: int = 25):
         optimizer, T_max=num_epochs // 4, eta_min=learning_rate / 10
     )
 
-    epoch = 0
-
     if use_wandb:
         wandb.init(project="superprompt-aug")
         wandb.watch(model)
@@ -153,12 +147,19 @@ def main(use_wandb: bool = False, eval_every: int = 25):
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     val_loader = DataLoader(val_dataset, batch_size=4)
 
-    for i, epoch in enumerate(range(num_epochs)):
+    for epoch in range(num_epochs):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
-            loss, log_dict, _, _, _ = process_batch(
-                batch, model, optimizer, device, epoch
+
+            loss, model_out = loss_fn_emb_aug(
+                batch, device, model
             )
+
+            log_dict = {
+                "loss": loss.item(),
+                "lr": optimizer.param_groups[0]["lr"],
+                "epoch": epoch,
+            }
 
             train_iter.set_postfix(log=log_dict)
             if use_wandb:
@@ -181,18 +182,24 @@ def main(use_wandb: bool = False, eval_every: int = 25):
                     safety_checker=None,
                 )
                 pipe = pipe.to("cuda")
-                loss, log_dict, mask_emb, unmask_emb, mask_emb_enc = process_batch(
-                    batch, model, optimizer, device, epoch
+                loss, model_out = loss_fn_emb_aug(
+                    batch, device, model
                 )
 
                 if is_xformers_available():
                     pipe.unet.enable_xformers_memory_efficient_attention()
 
-                log_dict["unmasked"] = []
-                log_dict["encoded"] = []
+                log_dict = {
+                    "loss": loss.item(),
+                    "unmasked": [],
+                    "encoded": [],
+                }
+
+                unmask_emb = batch["unmasked_embeddings"].to(device)
+
                 for key in ("unmasked", "encoded"):
                     print(f"Generating {key} images...")
-                    embeds = unmask_emb if key == "unmasked" else mask_emb_enc
+                    embeds = unmask_emb if key == "unmasked" else model_out
                     generations = pipe(prompt_embeds=embeds).images
                     os.makedirs("out", exist_ok=True)
                     for i, generation in enumerate(generations):
