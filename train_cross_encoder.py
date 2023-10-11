@@ -4,6 +4,7 @@ from datasets import load_dataset
 import spacy
 import wandb
 from models.clip_emb_aug import CLIPEmbeddingAugmenter
+from models.cross_encoder import CrossEncoder
 import torch.nn as nn
 import fire
 import torch
@@ -53,94 +54,12 @@ def loss_fn_emb_aug(
 def main(use_wandb: bool = False, eval_every: int = 25):
     device = get_available_device()
 
-    clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14").to(
-        device
-    )
-    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14")
-    max_clip_length = clip_model.config.max_position_embeddings
-
-    nlp = spacy.load("en_core_web_sm")
-
-    def mask_non_nouns(prompt):
-        doc = nlp(prompt)
-        non_adj_tokens, adj_tokens = [], []
-        pos = set({"NOUN", "PROPN"})
-        for token in doc:
-            if token.pos_ in pos or (token.dep_ == "nsubj" and token.pos_ == "VERB"):
-                non_adj_tokens.append(token.text)
-            else:
-                adj_tokens.append(token.text)
-        return " ".join(non_adj_tokens), " ".join(adj_tokens)
-
-    def preprocess_dataset(batch):
-        prompts = batch["prompt"]
-
-        masked_out = [mask_non_nouns(prompt) for prompt in prompts]
-        adj_prompts = [x[1] for x in masked_out]
-        non_adj_prompts = [x[0] for x in masked_out]
-
-        adj_input = tokenizer(
-            text=adj_prompts,
-            return_tensors="pt",
-            max_length=max_clip_length,
-            padding="max_length",
-            truncation=True,
-        ).to(device)
-        adj_clip_out = clip_model(**adj_input)
-        adj_embeddings = adj_clip_out.last_hidden_state
-
-        non_adj_input = tokenizer(
-            text=non_adj_prompts,
-            return_tensors="pt",
-            max_length=max_clip_length,
-            padding="max_length",
-            truncation=True,
-        ).to(device)
-        non_adj_clip_out = clip_model(**non_adj_input)
-        non_adj_embeddings = non_adj_clip_out.last_hidden_state
-
-        batch_dict = {
-            "adj_embeddings": adj_embeddings,
-            "non_adj_embeddings": non_adj_embeddings,
-        }
-        return batch_dict
-
-    # TODO filter for only high image text alignment scores
-    remove_cols = [
-        "image",
-        "prompt_id",
-        "prompt",
-        "classification",
-        "image_amount_in_total",
-        "rank",
-        "overall_rating",
-        "image_text_alignment_rating",
-        "fidelity_rating",
-    ]
-    dataset = load_dataset("poloclub/diffusiondb", "large_text_only", split="train")
-    dataset.set_format("torch")
-    cache_dir = "ds_cache"
-    Path(cache_dir).mkdir(exist_ok=True)
-    dataset = dataset.map(
-        preprocess_dataset,
-        cache_file_names={
-            "train": f"{cache_dir}/train",
-            "validation": f"{cache_dir}/validation",
-            "test": f"{cache_dir}/test",
-        },
-        batched=True,
-        num_proc=1,
-        drop_last_batch=True,
-        batch_size=128,
-        remove_columns=remove_cols,
-    )
-    # dataset.save_to_disk("image_reward_processed")
+    print("Loading dataset..")
+    dataset = load_dataset("roborovski/diffusiondb-seq2seq")
 
     print("Loading model..")
-
-    model = CLIPEmbeddingAugmenter(clip_model)
+    model = CrossEncoder(device)
     print(summary(model))
-    model.train()
 
     # Hyperparameters
     num_epochs: int = 200

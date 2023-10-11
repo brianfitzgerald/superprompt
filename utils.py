@@ -1,6 +1,7 @@
 import torch
 import os
 import platform
+from typing import Dict
 
 
 def get_available_device():
@@ -46,6 +47,7 @@ sample_translate_pairs = [
     ("Ich möchte den Gipfel des Berges sehen", "I wish to see the top of the mountain"),
 ]
 
+
 def get_model_grad_norm(model):
     total_norm = 0
     for p in model.parameters():
@@ -61,3 +63,45 @@ def weights_biases_sum(model):
     for param in model.parameters():
         total_weight_sum += param.data.sum().item()
     return total_weight_sum
+
+
+def split_subject_descriptors(batch: Dict, nlp: function):
+    """
+    Splits a batch of prompts into subjects and descriptors.
+    """
+    out = {
+        "subject": [],
+        "descriptor": [],
+    }
+    for prompt in batch["prompt"]:
+        doc = nlp(prompt)
+        subject_tokens, descriptor_tokens = [], []
+
+        # find the first chunk with either an entity or a proper noun.
+        subject_found = False
+        for chunk in doc.noun_chunks:
+            if subject_found:
+                descriptor_tokens.append(chunk.text)
+            else:
+                proper_nouns = [token for token in chunk if token.pos_ == "PROPN"]
+                proper_ents, non_proper_ents = [], []
+                for ent in chunk.ents:
+                    if ent.label_ == "PERSON" or ent.label_ == "ORG":
+                        proper_ents.append(ent)
+                    else:
+                        non_proper_ents.append(ent)
+                subject_tokens.append(chunk.root.text)
+                if len(non_proper_ents) > 0:
+                    subject_tokens.append(chunk.text)
+                    subject_found = True
+                elif len(proper_nouns) > 0 and len(proper_ents) == 0:
+                    subject_tokens.append(chunk.text)
+                    subject_found = True
+
+        # print("token deps")
+        subject_tokens = [
+            tok for i, tok in enumerate(subject_tokens) if tok not in subject_tokens[:i]
+        ]
+        out["subject"].append(" ".join(subject_tokens))
+        out["descriptor"].append(" ".join(descriptor_tokens))
+    return out
