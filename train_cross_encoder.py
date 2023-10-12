@@ -41,9 +41,11 @@ def loss_fn_emb_aug(
 ):
     out = {}
     for key in ("subject", "descriptor"):
-        out[key] = model(batch[key])
+        emb = model(batch[key])
+        out[key] = F.normalize(emb, p=2, dim=1)
     # get the embeddings for both the subject and the descriptor batch
-    loss = F.mse_loss(torch.cosine_similarity([out["subject"], out["descriptor"]]))
+    loss = torch.cosine_similarity(out["subject"], out["descriptor"])
+    loss = F.mse_loss(loss, torch.zeros_like(loss))
     return loss
 
 
@@ -78,7 +80,7 @@ def main(use_wandb: bool = False, eval_every: int = 25):
     for epoch in range(num_epochs):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
-            loss, model_out = loss_fn_emb_aug(batch, model)
+            loss = loss_fn_emb_aug(batch, model)
 
             log_dict = {
                 "loss": loss.item(),
