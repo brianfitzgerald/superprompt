@@ -65,7 +65,7 @@ def weights_biases_sum(model):
     return total_weight_sum
 
 
-def split_subject_descriptors(batch: Dict, nlp: function):
+def split_subject_descriptors(batch: Dict, nlp):
     """
     Splits a batch of prompts into subjects and descriptors.
     """

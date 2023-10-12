@@ -37,18 +37,14 @@ torch.manual_seed(0)
 
 def loss_fn_emb_aug(
     batch: Dict,
-    device: torch.device,
     model: CLIPEmbeddingAugmenter,
 ):
-    mask_emb, unmask_emb = (
-        batch["masked_embeddings"].to(device),
-        batch["unmasked_embeddings"].to(device),
-    )
-
-    model_out = model(mask_emb)
-    loss = F.mse_loss(model_out, unmask_emb)
-
-    return loss, model_out
+    out = {}
+    for key in ("subject", "descriptor"):
+        out[key] = model(batch[key])
+    # get the embeddings for both the subject and the descriptor batch
+    loss = F.mse_loss(torch.cosine_similarity([out["subject"], out["descriptor"]]))
+    return loss
 
 
 def main(use_wandb: bool = False, eval_every: int = 25):
@@ -75,14 +71,14 @@ def main(use_wandb: bool = False, eval_every: int = 25):
         wandb.init(project="superprompt-aug")
         wandb.watch(model)
 
-    train_dataset, val_dataset = dataset["train"], dataset["validation"]
-    train_loader = DataLoader(train_dataset, batch_size=batch_size)
-    val_loader = DataLoader(val_dataset, batch_size=4)
+    dataset = dataset["train"].train_test_split(test_size=0.1)
+    train_loader = DataLoader(dataset["train"], batch_size=batch_size)
+    test_loader = DataLoader(dataset["test"], batch_size=4)
 
     for epoch in range(num_epochs):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
-            loss, model_out = loss_fn_emb_aug(batch, device, model)
+            loss, model_out = loss_fn_emb_aug(batch, model)
 
             log_dict = {
                 "loss": loss.item(),
@@ -104,14 +100,15 @@ def main(use_wandb: bool = False, eval_every: int = 25):
         print("Epoch %d: SGD lr %.4f -> %.4f" % (epoch, before_lr, after_lr))
 
         if i % eval_every == 0:
-            for batch in val_loader:
+            test_iter = tqdm(test_loader, total=len(test_loader))
+            for batch in test_loader:
                 pipe = StableDiffusionPipeline.from_pretrained(
                     "runwayml/stable-diffusion-v1-5",
                     torch_dtype=torch.float16,
                     safety_checker=None,
                 )
                 pipe = pipe.to("cuda")
-                loss, model_out = loss_fn_emb_aug(batch, device, model)
+                loss, model_out = loss_fn_emb_aug(batch, model)
 
                 if is_xformers_available():
                     pipe.unet.enable_xformers_memory_efficient_attention()
