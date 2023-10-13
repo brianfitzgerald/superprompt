@@ -69,7 +69,7 @@ def main(use_wandb: bool = False, eval_every: int = 25):
     )
 
     if use_wandb:
-        wandb.init(project="superprompt-aug")
+        wandb.init(project="superprompt-cross-encoder")
         wandb.watch(model)
 
     dataset = dataset["train"].train_test_split(test_size=0.1)
@@ -81,7 +81,7 @@ def main(use_wandb: bool = False, eval_every: int = 25):
         for batch in train_iter:
             loss = loss_fn_emb_aug(batch, model)
 
-            loss_printed = f"{loss.item():.4f}"
+            loss_printed = round(loss.item(), 4)
             log_dict = {
                 "loss": loss_printed,
                 "lr": optimizer.param_groups[0]["lr"],
