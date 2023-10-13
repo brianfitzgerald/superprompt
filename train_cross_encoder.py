@@ -4,7 +4,7 @@ from datasets import load_dataset
 import spacy
 import wandb
 from models.clip_emb_aug import CLIPEmbeddingAugmenter
-from models.cross_encoder import CrossEncoder
+from models.cross_encoder import CrossEncoder, cos_sim, multiple_negatives_ranking_loss
 import torch.nn as nn
 import fire
 import torch
@@ -42,10 +42,9 @@ def loss_fn_emb_aug(
     out = {}
     for key in ("subject", "descriptor"):
         emb = model(batch[key])
-        out[key] = F.normalize(emb, p=2, dim=1)
+        out[key] = emb
     # get the embeddings for both the subject and the descriptor batch
-    loss = torch.cosine_similarity(out["subject"], out["descriptor"])
-    loss = F.mse_loss(loss, torch.zeros_like(loss))
+    loss = multiple_negatives_ranking_loss(out["subject"], out["descriptor"])
     return loss
 
 
@@ -77,13 +76,14 @@ def main(use_wandb: bool = False, eval_every: int = 25):
     train_loader = DataLoader(dataset["train"], batch_size=batch_size)
     test_loader = DataLoader(dataset["test"], batch_size=4)
 
-    for epoch in range(num_epochs):
+    for i, epoch in enumerate(range(num_epochs)):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
             loss = loss_fn_emb_aug(batch, model)
 
+            loss_printed = f"{loss.item():.4f}"
             log_dict = {
-                "loss": loss.item(),
+                "loss": loss_printed,
                 "lr": optimizer.param_groups[0]["lr"],
                 "epoch": epoch,
             }
@@ -103,7 +103,7 @@ def main(use_wandb: bool = False, eval_every: int = 25):
 
         if i % eval_every == 0:
             test_iter = tqdm(test_loader, total=len(test_loader))
-            for batch in test_loader:
+            for batch in test_iter:
                 pipe = StableDiffusionPipeline.from_pretrained(
                     "runwayml/stable-diffusion-v1-5",
                     torch_dtype=torch.float16,
