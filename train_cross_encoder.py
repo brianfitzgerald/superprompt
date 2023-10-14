@@ -120,6 +120,7 @@ def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
                     scores = scores.cpu().detach().numpy()
 
                     # Mean Reciprocal Rank (MRR), Recall@k, and Normalized Discounted Cumulative Gain (NDCG)
+                    # sentence_transformers\evaluation\InformationRetrievalEvaluator.py
 
                     loss_formatted = round(out.loss.item(), 4)
                     ndcg = ndcg_score(labels, scores)
