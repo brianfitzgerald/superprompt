@@ -1,33 +1,23 @@
-from argparse import Namespace
 from typing import Dict
 from datasets import load_dataset
 import spacy
 import wandb
 from models.clip_emb_aug import CLIPEmbeddingAugmenter
-from models.cross_encoder import CrossEncoder, cos_sim, multiple_negatives_ranking_loss
-import torch.nn as nn
+from models.cross_encoder import CrossEncoder, multiple_negatives_ranking_loss
 import fire
 import torch
-import torch.nn as nn
 import wandb
 from torch.optim import AdamW
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from diffusers.utils.import_utils import is_xformers_available
-import gc
 from torchinfo import summary
-import os
-from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR
-from diffusers import (
-    StableDiffusionPipeline,
-)
-from transformers import AutoTokenizer, CLIPTextModel
 from utils import get_available_device
-from enum import Enum
 from typing import Dict
+from transformers import get_cosine_schedule_with_warmup
+from sklearn.metrics import ndcg_score
+from dataclasses import dataclass
+from torch import Tensor
 import torch.nn.functional as F
-from pathlib import Path
-import shutil
 
 if not spacy.util.is_package("en_core_web_sm"):
     spacy.cli.download("en_core_web_sm")
@@ -35,20 +25,31 @@ if not spacy.util.is_package("en_core_web_sm"):
 torch.manual_seed(0)
 
 
+@dataclass
+class LossFnOutput:
+    loss: Tensor
+    subject_out: Tensor
+    descriptor_out: Tensor
+    scores: Tensor
+    labels: Tensor
+
+
 def loss_fn_emb_aug(
     batch: Dict,
     model: CLIPEmbeddingAugmenter,
-):
+) -> LossFnOutput:
     out = {}
     for key in ("subject", "descriptor"):
         emb = model(batch[key])
         out[key] = emb
     # get the embeddings for both the subject and the descriptor batch
-    loss = multiple_negatives_ranking_loss(out["subject"], out["descriptor"])
-    return loss
+    scores, labels = multiple_negatives_ranking_loss(out["subject"], out["descriptor"])
+    loss = F.cross_entropy(scores, labels)
+    return LossFnOutput(loss, out["subject"], out["descriptor"], scores, labels)
 
 
-def main(use_wandb: bool = False, eval_every: int = 25):
+# eval_every and valid_every are in terms of batches
+def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
     device = get_available_device()
 
     print("Loading dataset..")
@@ -60,30 +61,35 @@ def main(use_wandb: bool = False, eval_every: int = 25):
 
     # Hyperparameters
     num_epochs: int = 200
-    learning_rate: float = 1e-5
+    learning_rate: float = 2e-5
     batch_size: int = 64
+    warmup_steps: int = 1000
+    max_grad_norm = 1
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
-    scheduler = CosineAnnealingLR(
-        optimizer, T_max=num_epochs // 4, eta_min=learning_rate / 10
+    steps_per_epoch = len(dataset["train"]) // batch_size
+    num_training_steps = steps_per_epoch * num_epochs
+
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer, num_warmup_steps=warmup_steps, num_training_steps=num_training_steps
     )
 
     if use_wandb:
         wandb.init(project="superprompt-cross-encoder")
         wandb.watch(model)
 
-    dataset = dataset["train"].train_test_split(test_size=0.1)
+    dataset = dataset["train"].train_test_split(test_size=int(48), seed=42)
     train_loader = DataLoader(dataset["train"], batch_size=batch_size)
-    test_loader = DataLoader(dataset["test"], batch_size=4)
+    eval_loader = DataLoader(dataset["test"], batch_size=len(dataset["test"]))
 
     for i, epoch in enumerate(range(num_epochs)):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
-            loss = loss_fn_emb_aug(batch, model)
+            out = loss_fn_emb_aug(batch, model)
 
-            loss_printed = round(loss.item(), 4)
+            loss_formatted = round(out.loss.item(), 4)
             log_dict = {
-                "loss": loss_printed,
+                "loss": loss_formatted,
                 "lr": optimizer.param_groups[0]["lr"],
                 "epoch": epoch,
             }
@@ -94,7 +100,7 @@ def main(use_wandb: bool = False, eval_every: int = 25):
 
             # Backward pass and optimization
             optimizer.zero_grad()
-            loss.backward()
+            out.loss.backward()
             optimizer.step()
         before_lr = optimizer.param_groups[0]["lr"]
         scheduler.step()
@@ -102,49 +108,66 @@ def main(use_wandb: bool = False, eval_every: int = 25):
         print("Epoch %d: SGD lr %.4f -> %.4f" % (epoch, before_lr, after_lr))
 
         if i % eval_every == 0:
-            test_iter = tqdm(test_loader, total=len(test_loader))
-            for batch in test_iter:
-                pipe = StableDiffusionPipeline.from_pretrained(
-                    "runwayml/stable-diffusion-v1-5",
-                    torch_dtype=torch.float16,
-                    safety_checker=None,
-                )
-                pipe = pipe.to("cuda")
-                loss, model_out = loss_fn_emb_aug(batch, model)
+            print("---Running eval---")
+            eval_iter = tqdm(eval_loader, total=len(eval_loader))
+            model.eval()
+            for batch in eval_iter:
+                out = loss_fn_emb_aug(batch, model)
+                loss_formatted = round(out.loss.item(), 4)
 
-                if is_xformers_available():
-                    pipe.unet.enable_xformers_memory_efficient_attention()
+                ndcg = ndcg_score(out.labels, out.scores)
 
                 log_dict = {
-                    "loss": loss.item(),
-                    "unmasked": [],
-                    "encoded": [],
+                    "eval_loss": loss_formatted,
+                    "ndcg": ndcg,
                 }
-
-                unmask_emb = batch["unmasked_embeddings"].to(device)
-
-                Path("out").mkdir(exist_ok=True)
-                shutil.rmtree("out")
-                Path("out").mkdir(exist_ok=True)
-
-                for key in ("unmasked", "encoded"):
-                    print(f"Generating {key} images...")
-                    embeds = unmask_emb if key == "unmasked" else model_out
-                    generations = pipe(prompt_embeds=embeds).images
-                    os.makedirs("out", exist_ok=True)
-                    for i, generation in enumerate(generations):
-                        generation.save(f"out/{key}_{i}.png")
-                        if use_wandb:
-                            log_dict[key].append(wandb.Image(generation))
 
                 if use_wandb:
                     wandb.log(log_dict)
+                print("---Eval stats---")
+                print(log_dict)
 
-                del pipe
-                gc.collect()
-                torch.cuda.empty_cache()
+            model.train()
 
-                break
+        # # TODO rewrite this. use the retrieved annotations to generate images
+        # if i % valid_every == 0:
+        #     eval_iter = tqdm(eval_loader, total=len(eval_loader))
+        #     pipe = StableDiffusionPipeline.from_pretrained(
+        #         "runwayml/stable-diffusion-v1-5",
+        #         torch_dtype=torch.float16,
+        #         safety_checker=None,
+        #     )
+        #     pipe = pipe.to("cuda")
+        #     if is_xformers_available():
+        #         pipe.unet.enable_xformers_memory_efficient_attention()
+        #     for batch in eval_iter:
+
+        #         loss = loss_fn_emb_aug(batch, model)
+
+        #         log_dict = {
+        #             "loss": loss.item(),
+        #             "unmasked": [],
+        #             "encoded": [],
+        #         }
+
+        #         # clear out directory
+        #         Path("out").mkdir(exist_ok=True)
+        #         shutil.rmtree("out")
+        #         Path("out").mkdir(exist_ok=True)
+
+        #         generations = pipe(prompt="").images
+        #         os.makedirs("out", exist_ok=True)
+        #         for i, generation in enumerate(generations):
+        #             generation.save(f"out/{key}_{i}.png")
+        #             if use_wandb:
+        #                 log_dict[key].append(wandb.Image(generation))
+
+        #         if use_wandb:
+        #             wandb.log(log_dict)
+
+        #     del pipe
+        #     gc.collect()
+        #     torch.cuda.empty_cache()
 
     wandb.finish()
 

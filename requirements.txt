@@ -17,3 +17,4 @@ webdataset
 einops
 omegaconf
 bitsandbytes
+scikit-learn

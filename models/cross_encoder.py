@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel
-from typing import Dict, List, Tuple, Union
+from typing import List
 from torch import Tensor
 
 def cos_sim(a: Tensor, b: Tensor):
@@ -37,7 +37,7 @@ def multiple_negatives_ranking_loss(
     scores = cos_sim(embeddings_a, embeddings_b) * scale
     # label here is the index of the positive example for a given example
     labels = torch.tensor(range(len(scores)), dtype=torch.long, device=scores.device)  # Example a[i] should match with b[i]
-    return F.cross_entropy(scores, labels)
+    return scores, labels
 
 class CrossEncoder(nn.Module):
     def __init__(self, device: torch.device) -> None:
