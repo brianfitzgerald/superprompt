@@ -119,6 +119,7 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
                     scores = torch.argmax(out.scores, dim=1)
                     scores = scores.cpu().detach().numpy()
 
+                    # TODO these scores are not correct! Re-implement them.
                     # Mean Reciprocal Rank (MRR), Recall@k, and Normalized Discounted Cumulative Gain (NDCG)
                     # sentence_transformers\evaluation\InformationRetrievalEvaluator.py
 
