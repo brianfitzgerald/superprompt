@@ -48,7 +48,7 @@ sample_translate_pairs = [
 ]
 
 
-def get_model_grad_norm(model):
+def get_model_gradient_norm(model):
     total_norm = 0
     for p in model.parameters():
         if p.grad is not None and p.grad.data is not None:

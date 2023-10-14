@@ -11,10 +11,10 @@ from torch.optim import AdamW
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchinfo import summary
-from utils import get_available_device
+from utils import get_available_device, get_model_gradient_norm
 from typing import Dict
 from transformers import get_cosine_schedule_with_warmup
-from sklearn.metrics import ndcg_score
+from sklearn.metrics import ndcg_score, recall_score, precision_score
 from dataclasses import dataclass
 from torch import Tensor
 import torch.nn.functional as F
@@ -90,9 +90,11 @@ def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
 
             loss_formatted = round(out.loss.item(), 4)
             lr_formatted = round(lr, 8)
+            gradient_norm = round(get_model_gradient_norm(model), 4)
             log_dict = {
                 "loss": loss_formatted,
                 "lr": lr_formatted,
+                "grad_norm": gradient_norm,
                 "epoch": epoch,
             }
 
@@ -107,27 +109,41 @@ def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
             optimizer.zero_grad()
             scheduler.step()
 
-        if i % eval_every == 0:
-            print("---Running eval---")
-            eval_iter = tqdm(eval_loader, total=len(eval_loader))
-            model.eval()
-            for batch in eval_iter:
-                out = loss_fn_emb_aug(batch, model)
-                loss_formatted = round(out.loss.item(), 4)
+            if i % eval_every == 0:
+                print("---Running eval---")
+                eval_iter = tqdm(eval_loader, total=len(eval_loader))
+                model.eval()
+                for batch in eval_iter:
+                    out = loss_fn_emb_aug(batch, model)
+                    labels = out.labels.cpu().detach().numpy()
+                    scores = torch.argmax(out.scores, dim=1)
+                    scores = scores.cpu().detach().numpy()
 
-                ndcg = ndcg_score(out.labels, out.scores)
+                    # Mean Reciprocal Rank (MRR), Recall@k, and Normalized Discounted Cumulative Gain (NDCG)
 
-                log_dict = {
-                    "eval_loss": loss_formatted,
-                    "ndcg": ndcg,
-                }
+                    loss_formatted = round(out.loss.item(), 4)
+                    ndcg = ndcg_score(labels, scores)
+                    recall = recall_score(labels, scores)
+                    precision_score = precision_score(labels, scores)
+                    f1_score = (
+                        2 * (precision_score * recall) / (precision_score + recall)
+                    )
 
-                if use_wandb:
-                    wandb.log(log_dict)
-                print("---Eval stats---")
-                print(log_dict)
+                    log_dict = {
+                        "eval_loss": loss_formatted,
+                        "ndcg": ndcg,
+                        "recall": recall,
+                        "precision": precision_score,
+                        "f1": f1_score,
+                    }
 
-            model.train()
+                    if use_wandb:
+                        wandb.log(log_dict)
+
+                    print("---Eval stats---")
+                    print(log_dict)
+
+                model.train()
 
         # # TODO rewrite this. use the retrieved annotations to generate images
         # if i % valid_every == 0:

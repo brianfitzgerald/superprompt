@@ -23,7 +23,7 @@ from enum import Enum
 from datasets import load_dataset
 import bitsandbytes as bnb
 import wandb
-from utils import get_model_grad_norm
+from utils import get_model_gradient_norm
 
 size = 512
 to_tensor = transforms.ToTensor()
@@ -211,7 +211,7 @@ def train(
             if clip_grad_val > 0:
                 nn.utils.clip_grad_norm_(model.parameters(), clip_grad_val)
 
-            norm_text, lr_text = round(get_model_grad_norm(model), 3), scheduler.get_last_lr()[0]
+            norm_text, lr_text = round(get_model_gradient_norm(model), 3), scheduler.get_last_lr()[0]
             progress_bar.set_postfix(
                 loss=loss_rounded, lr=lr_text, norm=norm_text
             )
