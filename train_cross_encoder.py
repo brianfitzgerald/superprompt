@@ -12,12 +12,13 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchinfo import summary
 from utils import get_available_device, get_model_gradient_norm
-from typing import Dict
+from typing import Dict, List
 from transformers import get_cosine_schedule_with_warmup
-from sklearn.metrics import ndcg_score, recall_score, precision_score
+from sklearn.metrics import recall_score, precision_score
 from dataclasses import dataclass
 from torch import Tensor
 import torch.nn.functional as F
+from copy import copy
 
 if not spacy.util.is_package("en_core_web_sm"):
     spacy.cli.download("en_core_web_sm")
@@ -28,8 +29,10 @@ torch.manual_seed(0)
 @dataclass
 class LossFnOutput:
     loss: Tensor
-    subject_out: Tensor
-    descriptor_out: Tensor
+    subject_embedding: Tensor
+    descriptor_embedding: Tensor
+    subject_text: List[str]
+    descriptor_text: List[str]
     scores: Tensor
     labels: Tensor
 
@@ -41,11 +44,22 @@ def loss_fn_emb_aug(
     out = {}
     for key in ("subject", "descriptor"):
         emb = model(batch[key])
-        out[key] = emb
+        out[key] = batch[key]
+        out[f"emb_{key}"] = emb
     # get the embeddings for both the subject and the descriptor batch
-    scores, labels = multiple_negatives_ranking_loss(out["subject"], out["descriptor"])
+    scores, labels = multiple_negatives_ranking_loss(
+        out["emb_subject"], out["emb_descriptor"]
+    )
     loss = F.cross_entropy(scores, labels)
-    return LossFnOutput(loss, out["subject"], out["descriptor"], scores, labels)
+    return LossFnOutput(
+        loss,
+        out["emb_subject"],
+        out["emb_descriptor"],
+        out["subject"],
+        out["descriptor"],
+        scores,
+        labels,
+    )
 
 
 # eval_every and valid_every are in terms of batches
@@ -77,6 +91,13 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
     if use_wandb:
         wandb.init(project="superprompt-cross-encoder")
         wandb.watch(model)
+        samples_table = wandb.Table(
+            data=[],
+            columns=[
+                "subject",
+                "descriptor",
+            ],
+        )
 
     dataset = dataset["train"].train_test_split(test_size=int(48), seed=42)
     train_loader = DataLoader(dataset["train"], batch_size=batch_size)
@@ -115,9 +136,9 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
                 model.eval()
                 for batch in eval_iter:
                     out = loss_fn_emb_aug(batch, model)
-                    labels = out.labels.cpu().detach().numpy()
-                    scores = torch.argmax(out.scores, dim=1)
-                    scores = scores.cpu().detach().numpy()
+                    true_rankins = out.labels.cpu().detach().numpy()
+                    pred_rankings = torch.argmax(out.scores, dim=1)
+                    pred_rankings = pred_rankings.cpu().detach().numpy()
 
                     # TODO these scores are not correct! Re-implement them.
                     # Mean Reciprocal Rank (MRR), Recall@k, and Normalized Discounted Cumulative Gain (NDCG)
@@ -125,11 +146,16 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
 
                     loss_formatted = round(out.loss.item(), 4)
                     # ndcg = ndcg_score(labels, scores)
-                    recall = recall_score(labels, scores, average="macro")
-                    precision = precision_score(labels, scores, average="macro")
-                    f1_score = (
-                        2 * (precision * recall) / (precision + recall)
-                    )
+                    recall = recall_score(true_rankins, pred_rankings, average="macro")
+                    precision = precision_score(true_rankins, pred_rankings, average="macro")
+                    f1_score = 2 * (precision * recall) / (precision + recall)
+
+                    num_samples_to_log = 4
+
+                    subject_text = out.subject_text[:num_samples_to_log]
+                    subject_descriptors_ranked = [
+                        out.descriptor_text[i] for i in pred_rankings
+                    ][:num_samples_to_log]
 
                     log_dict = {
                         "eval_loss": loss_formatted,
@@ -141,6 +167,8 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
 
                     if use_wandb:
                         wandb.log(log_dict)
+                        samples_table.add_data(subject_text, subject_descriptors_ranked)
+                        wandb.log({"samples": copy(samples_table)})
 
                     print("---Eval stats---")
                     print(log_dict)
