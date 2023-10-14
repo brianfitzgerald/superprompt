@@ -63,7 +63,7 @@ def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
     num_epochs: int = 200
     learning_rate: float = 2e-5
     batch_size: int = 64
-    warmup_steps: int = 1000
+    warmup_steps: int = 10
     max_grad_norm = 1
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
@@ -86,11 +86,13 @@ def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for batch in train_iter:
             out = loss_fn_emb_aug(batch, model)
+            lr = optimizer.param_groups[0]["lr"]
 
             loss_formatted = round(out.loss.item(), 4)
+            lr_formatted = round(lr, 8)
             log_dict = {
                 "loss": loss_formatted,
-                "lr": optimizer.param_groups[0]["lr"],
+                "lr": lr_formatted,
                 "epoch": epoch,
             }
 
@@ -99,13 +101,11 @@ def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
                 wandb.log(log_dict)
 
             # Backward pass and optimization
-            optimizer.zero_grad()
             out.loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
             optimizer.step()
-        before_lr = optimizer.param_groups[0]["lr"]
-        scheduler.step()
-        after_lr = optimizer.param_groups[0]["lr"]
-        print("Epoch %d: SGD lr %.4f -> %.4f" % (epoch, before_lr, after_lr))
+            optimizer.zero_grad()
+            scheduler.step()
 
         if i % eval_every == 0:
             print("---Running eval---")
