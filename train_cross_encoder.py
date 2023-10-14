@@ -49,7 +49,7 @@ def loss_fn_emb_aug(
 
 
 # eval_every and valid_every are in terms of batches
-def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
+def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100):
     device = get_available_device()
 
     print("Loading dataset..")
@@ -84,7 +84,7 @@ def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
 
     for i, epoch in enumerate(range(num_epochs)):
         train_iter = tqdm(train_loader, total=len(train_loader))
-        for batch in train_iter:
+        for j, batch in enumerate(train_iter):
             out = loss_fn_emb_aug(batch, model)
             lr = optimizer.param_groups[0]["lr"]
 
@@ -109,7 +109,7 @@ def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
             optimizer.zero_grad()
             scheduler.step()
 
-            if i % eval_every == 0:
+            if j % eval_every == 0:
                 print("---Running eval---")
                 eval_iter = tqdm(eval_loader, total=len(eval_loader))
                 model.eval()
@@ -123,18 +123,18 @@ def main(use_wandb: bool = False, eval_every: int = 10, valid_every: int = 100):
                     # sentence_transformers\evaluation\InformationRetrievalEvaluator.py
 
                     loss_formatted = round(out.loss.item(), 4)
-                    ndcg = ndcg_score(labels, scores)
-                    recall = recall_score(labels, scores)
-                    precision_score = precision_score(labels, scores)
+                    # ndcg = ndcg_score(labels, scores)
+                    recall = recall_score(labels, scores, average="macro")
+                    precision = precision_score(labels, scores, average="macro")
                     f1_score = (
-                        2 * (precision_score * recall) / (precision_score + recall)
+                        2 * (precision * recall) / (precision + recall)
                     )
 
                     log_dict = {
                         "eval_loss": loss_formatted,
-                        "ndcg": ndcg,
+                        # "ndcg": ndcg,
                         "recall": recall,
-                        "precision": precision_score,
+                        "precision": precision,
                         "f1": f1_score,
                     }
 
