@@ -11,7 +11,7 @@ from torch.optim import AdamW
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchinfo import summary
-from utils import get_available_device, get_model_gradient_norm
+from utils import get_available_device, get_model_gradient_norm, compute_ndcg
 from typing import Dict, List
 from transformers import get_cosine_schedule_with_warmup
 from sklearn.metrics import recall_score, precision_score
@@ -83,6 +83,7 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
     samples_table = wandb.Table(
         data=[],
         columns=[
+            "epoch",
             "subject",
             "descriptor",
         ],
@@ -104,7 +105,7 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
     train_loader = DataLoader(dataset["train"], batch_size=batch_size)
     eval_loader = DataLoader(dataset["test"], batch_size=len(dataset["test"]))
 
-    for i, epoch in enumerate(range(num_epochs)):
+    for rank, epoch in enumerate(range(num_epochs)):
         train_iter = tqdm(train_loader, total=len(train_loader))
         for j, batch in enumerate(train_iter):
             out = loss_fn_emb_aug(batch, model)
@@ -137,19 +138,38 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
                 model.eval()
                 for batch in eval_iter:
                     out = loss_fn_emb_aug(batch, model)
-                    true_rankins = out.labels.cpu().detach().numpy()
-                    pred_rankings = torch.argmax(out.scores, dim=1)
-                    pred_rankings = pred_rankings.cpu().detach().numpy()
+                    true_rankings = out.labels.cpu().detach().numpy()
+                    pred_rankings = (
+                        torch.argmax(out.scores, dim=1).cpu().detach().numpy()
+                    )
 
-                    # TODO these scores are not correct! Re-implement them.
-                    # Mean Reciprocal Rank (MRR), Recall@k, and Normalized Discounted Cumulative Gain (NDCG)
-                    # sentence_transformers\evaluation\InformationRetrievalEvaluator.py
+                    k_value = 10
 
                     loss_formatted = round(out.loss.item(), 4)
-                    # ndcg = ndcg_score(labels, scores)
-                    recall = recall_score(true_rankins, pred_rankings, average="macro")
-                    precision = precision_score(true_rankins, pred_rankings, average="macro")
+
+                    # accuracy - how many of the top 10 are correct
+                    # precision - number of correct results divided by the number of all returned results
+                    # recall - number of correct results divided by the number of results that should have been returned
+                    # MRR - mean reciprocal rank
+                    # NDCG - normalized discounted cumulative gain
+                    # MAP - mean average precision
+
+                    # hits = number of correct results in top 10
+                    # mrr = 1 / rank of first correct result
+                    hits, mrr, sum_precisions = 0, 0, 0
+                    for rank in range(0, k_value):
+                        if true_rankings[rank] in pred_rankings[:k_value]:
+                            hits += 1
+                            if hits == 1:
+                                mrr = 1 / (rank + 1)
+                            sum_precisions += hits / (rank + 1)
+
+                    precision = hits / k_value
+                    recall = hits / len(true_rankings)
                     f1_score = 2 * (precision * recall) / (precision + recall)
+                    avg_precision = sum_precisions / k_value
+
+                    ndcg = compute_ndcg(true_rankings, pred_rankings, k_value)
 
                     num_samples_to_log = 4
 
@@ -160,17 +180,20 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
 
                     log_dict = {
                         "eval_loss": loss_formatted,
-                        # "ndcg": ndcg,
+                        "ndcg": ndcg,
+                        "mrr": mrr,
                         "recall": recall,
                         "precision": precision,
                         "f1": f1_score,
+                        "map": avg_precision,
+                        "epoch": epoch,
                     }
 
                     # why are wandb tables so bad
                     # https://docs.wandb.ai/guides/track/log/log-tables
-                    for i in range(num_samples_to_log):
+                    for rank in range(num_samples_to_log):
                         samples_table.add_data(
-                            subject_text[i], subject_descriptors_ranked[i]
+                            epoch, subject_text[rank], subject_descriptors_ranked[rank]
                         )
                     if use_wandb:
                         log_dict["samples"] = samples_table

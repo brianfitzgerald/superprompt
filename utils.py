@@ -1,7 +1,8 @@
 import torch
 import os
 import platform
-from typing import Dict
+from typing import Dict, List
+import numpy as np
 
 
 def get_available_device():
@@ -105,3 +106,16 @@ def split_subject_descriptors(batch: Dict, nlp):
         out["subject"].append(" ".join(subject_tokens))
         out["descriptor"].append(" ".join(descriptor_tokens))
     return out
+
+def compute_dcg(relevance: List[int], k):
+    dcg = 0.0
+    for i in range(k):
+        dcg += (2 ** relevance[i] - 1) / np.log2(i + 2)
+    return dcg
+
+def compute_ndcg(true_rankings, pred_rankings, k):
+    true_relevance = [1 if i in true_rankings else 0 for i in range(k)]
+    true_dcg = compute_dcg(true_relevance, k)
+    pred_relevance = [1 if i in pred_rankings else 0 for i in range(k)]
+    pred_dcg = compute_dcg(pred_relevance, k)
+    return pred_dcg / true_dcg
