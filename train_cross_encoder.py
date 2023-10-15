@@ -80,6 +80,14 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
     warmup_steps: int = 10
     max_grad_norm = 1
 
+    samples_table = wandb.Table(
+        data=[],
+        columns=[
+            "subject",
+            "descriptor",
+        ],
+    )
+
     optimizer = AdamW(model.parameters(), lr=learning_rate)
     steps_per_epoch = len(dataset["train"]) // batch_size
     num_training_steps = steps_per_epoch * num_epochs
@@ -91,13 +99,6 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
     if use_wandb:
         wandb.init(project="superprompt-cross-encoder")
         wandb.watch(model)
-        samples_table = wandb.Table(
-            data=[],
-            columns=[
-                "subject",
-                "descriptor",
-            ],
-        )
 
     dataset = dataset["train"].train_test_split(test_size=int(48), seed=42)
     train_loader = DataLoader(dataset["train"], batch_size=batch_size)
@@ -165,10 +166,15 @@ def main(use_wandb: bool = False, eval_every: int = 100, valid_every: int = 100)
                         "f1": f1_score,
                     }
 
+                    # why are wandb tables so bad
+                    # https://docs.wandb.ai/guides/track/log/log-tables
+                    for i in range(num_samples_to_log):
+                        samples_table.add_data(
+                            subject_text[i], subject_descriptors_ranked[i]
+                        )
                     if use_wandb:
+                        log_dict["samples"] = samples_table
                         wandb.log(log_dict)
-                        samples_table.add_data(subject_text, subject_descriptors_ranked)
-                        wandb.log({"samples": copy(samples_table)})
 
                     print("---Eval stats---")
                     print(log_dict)
