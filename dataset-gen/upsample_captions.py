@@ -4,7 +4,8 @@ from typing import Dict, List, Tuple
 import pandas as pd
 import torch
 from datasets import Dataset, load_dataset
-from transformers import pipeline
+from transformers import pipeline, Pipeline
+import fire
 
 
 def load_chat_pipeline():
@@ -85,7 +86,7 @@ def make_final_message(
     return final_message
 
 
-def upsample_caption(pipeline, message):
+def upsample_caption_local(pipeline, message: list[Dict[str, str]]):
     """Performs inference on a single DrawBench prompt."""
     prompt = pipeline.tokenizer.apply_chat_template(
         message, tokenize=False, add_generation_prompt=True
@@ -101,6 +102,10 @@ def upsample_caption(pipeline, message):
     return outputs
 
 
+def upsample_caption_oai(message: list[Dict[str, str]]):
+    pass
+
+
 def prepare_assistant_reply(assistant_output):
     """Prepares the assistant reply which will be considered as the upsampled caption."""
     output = assistant_output[0]["generated_text"]
@@ -109,36 +114,43 @@ def prepare_assistant_reply(assistant_output):
     return assistant_reply
 
 
-def main():
+def main(use_local_model: bool = False):
     print("Loading dataset and pipeline...")
-    drawbench = load_dataset("sayakpaul/drawbench", split="train")
-    pipeline = load_chat_pipeline()
+    dataset = pd.read_csv("PartiPrompts.tsv", sep="\t")
+    pipeline = None
+    if use_local_model:
+        pipeline = load_chat_pipeline()
 
     print("Upsampling captions...")
     upsampled_captions = []
-    for i in range(len(drawbench)):
+    for i, row in enumerate(dataset.itertuples()):
+        prompt = row.Prompt
         system_message, rest_of_the_message = get_messages_for_chat()
         updated_prompt = rest_of_the_message[-1]["content"].format(
-            drawbench_prompt=drawbench[i]["Prompts"]
+            drawbench_prompt=prompt
         )
         rest_of_the_message[-1]["content"] = updated_prompt
         final_message = make_final_message(
             system_message, rest_of_the_message, debug=False
         )
 
-        outputs = upsample_caption(pipeline, final_message)
+        if use_local_model:
+            outputs = upsample_caption_local(pipeline, final_message)
+        else:
+            outputs = upsample_caption_oai(final_message)
+
         upsampled_caption = prepare_assistant_reply(outputs)
         upsampled_captions.append(upsampled_caption)
 
     print("Upsampling done, pushing to the Hub...")
     data_dict = {
-        "Prompt": list(drawbench["Prompts"]),
+        "Prompt": list(dataset["Prompt"]),
         "Upsampled Prompt": upsampled_captions,
-        "Category": list(drawbench["Category"]),
+        "Category": list(dataset["Category"]),
     }
     dataset = Dataset.from_dict(data_dict)
-    dataset.push_to_hub("drawbench-upsampled-zephyr-7b-alpha")
+    dataset.push_to_hub("partiprompts-upsampled")
 
 
 if __name__ == "__main__":
-    main()
+    fire.Fire(main)
