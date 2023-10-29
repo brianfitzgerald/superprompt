@@ -163,3 +163,5 @@ vae.safetensors
 
 image_reward_processed
 *_cache
+
+generate_prompts/*.csv

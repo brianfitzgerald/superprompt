@@ -1,3 +1,4 @@
+import os
 from pprint import pprint
 from typing import Dict, List, Tuple
 
@@ -6,6 +7,8 @@ import torch
 from datasets import Dataset, load_dataset
 from transformers import pipeline, Pipeline
 import fire
+from huggingface_hub import login, whoami
+from dotenv import load_dotenv
 
 
 def load_chat_pipeline():
@@ -114,28 +117,42 @@ def prepare_assistant_reply(assistant_output):
     return assistant_reply
 
 
-def upload_dataset(dataset, upsampled_captions):
+def upload_dataset(dataset: pd.DataFrame, upsampled_captions):
+    n_captions = len(upsampled_captions)
     data_dict = {
-        "Prompt": list(dataset["Prompt"]),
+        "Prompt": list(dataset["Prompt"][:n_captions]),
         "Upsampled": upsampled_captions,
-        "Category": list(dataset["Category"]),
+        "Category": list(dataset["Category"][:n_captions]),
     }
-    dataset = Dataset.from_dict(data_dict)
-    dataset.to_csv("upsampled_prompts_parti.csv")
-    dataset.push_to_hub("roborovski/upsampled-prompts-parti")
+
+    dataset_hf = Dataset.from_dict(data_dict)
+    dataset_hf.to_csv("upsampled_prompts_parti.csv")
+    dataset_hf.push_to_hub("roborovski/upsampled-prompts-parti")
 
 
 def main(local: bool = False):
     print("Loading dataset and pipeline...")
     dataset = pd.read_csv("PartiPrompts.tsv", sep="\t")
+    upsampled_captions = []
+
+    print("Logging into the Hub...")
+    file_dir = os.path.dirname(os.path.abspath(__file__))
+    load_dotenv(os.path.join(file_dir, ".env"))
+    token = os.getenv("HF_TOKEN")
+    print(f"Logging in with token: {token}")
+    login(token=token, add_to_git_credential=True)
+
+    # initial test upload before loading the pipeline
+    upload_dataset(dataset, upsampled_captions)
+
     pipeline = None
     if local:
+        print("Loading local pipeline...")
         pipeline = load_chat_pipeline()
 
     print("Upsampling captions...")
-    upsampled_captions = []
     for i, row in enumerate(dataset.itertuples()):
-        prompt = row.Prompt
+        prompt, category = row.Prompt, row.Category
         system_message, rest_of_the_message = get_messages_for_chat()
         updated_prompt = rest_of_the_message[-1]["content"].format(prompt=prompt)
         rest_of_the_message[-1]["content"] = updated_prompt
@@ -150,6 +167,8 @@ def main(local: bool = False):
 
         upsampled_caption = prepare_assistant_reply(outputs)
         upsampled_captions.append(upsampled_caption)
+
+        print(f"Upsampled prompt {i} ({category}): {prompt} -> {upsampled_caption}")
 
         if i % 10 == 0:
             print(f"Upsampled {i} prompts")
