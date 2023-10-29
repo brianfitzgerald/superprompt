@@ -170,7 +170,7 @@ def main(local: bool = False):
 
         print(f"Upsampled prompt {i} ({category}): {prompt} -> {upsampled_caption}")
 
-        if i % 10 == 0:
+        if i % 50 == 0:
             print(f"Upsampled {i} prompts")
             upload_dataset(dataset, upsampled_captions)
 
