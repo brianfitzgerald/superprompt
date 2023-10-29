@@ -67,7 +67,7 @@ def get_messages_for_chat() -> Tuple[Dict, List[Dict]]:
         },
         {
             "role": "user",
-            "content": "Create an imaginative image descriptive caption or modify an earlier caption for the user input : '{drawbench_prompt}'",
+            "content": "Create an imaginative image descriptive caption or modify an earlier caption for the user input : '{prompt}'",
         },
     ]
     return system_message, rest_of_the_message
@@ -87,7 +87,7 @@ def make_final_message(
 
 
 def upsample_caption_local(pipeline, message: list[Dict[str, str]]):
-    """Performs inference on a single DrawBench prompt."""
+    """Performs inference on a single prompt."""
     prompt = pipeline.tokenizer.apply_chat_template(
         message, tokenize=False, add_generation_prompt=True
     )
@@ -114,11 +114,22 @@ def prepare_assistant_reply(assistant_output):
     return assistant_reply
 
 
-def main(use_local_model: bool = False):
+def upload_dataset(dataset, upsampled_captions):
+    data_dict = {
+        "Prompt": list(dataset["Prompt"]),
+        "Upsampled": upsampled_captions,
+        "Category": list(dataset["Category"]),
+    }
+    dataset = Dataset.from_dict(data_dict)
+    dataset.to_csv("upsampled_prompts_parti.csv")
+    dataset.push_to_hub("roborovski/upsampled-prompts-parti")
+
+
+def main(local: bool = False):
     print("Loading dataset and pipeline...")
     dataset = pd.read_csv("PartiPrompts.tsv", sep="\t")
     pipeline = None
-    if use_local_model:
+    if local:
         pipeline = load_chat_pipeline()
 
     print("Upsampling captions...")
@@ -126,15 +137,13 @@ def main(use_local_model: bool = False):
     for i, row in enumerate(dataset.itertuples()):
         prompt = row.Prompt
         system_message, rest_of_the_message = get_messages_for_chat()
-        updated_prompt = rest_of_the_message[-1]["content"].format(
-            drawbench_prompt=prompt
-        )
+        updated_prompt = rest_of_the_message[-1]["content"].format(prompt=prompt)
         rest_of_the_message[-1]["content"] = updated_prompt
         final_message = make_final_message(
             system_message, rest_of_the_message, debug=False
         )
 
-        if use_local_model:
+        if local:
             outputs = upsample_caption_local(pipeline, final_message)
         else:
             outputs = upsample_caption_oai(final_message)
@@ -142,14 +151,13 @@ def main(use_local_model: bool = False):
         upsampled_caption = prepare_assistant_reply(outputs)
         upsampled_captions.append(upsampled_caption)
 
+        if i % 10 == 0:
+            print(f"Upsampled {i} prompts")
+            upload_dataset(dataset, upsampled_captions)
+
+    upload_dataset(dataset, upsampled_captions)
+
     print("Upsampling done, pushing to the Hub...")
-    data_dict = {
-        "Prompt": list(dataset["Prompt"]),
-        "Upsampled Prompt": upsampled_captions,
-        "Category": list(dataset["Category"]),
-    }
-    dataset = Dataset.from_dict(data_dict)
-    dataset.push_to_hub("partiprompts-upsampled")
 
 
 if __name__ == "__main__":
