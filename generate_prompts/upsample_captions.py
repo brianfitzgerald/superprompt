@@ -125,6 +125,7 @@ def upload_dataset(dataset: pd.DataFrame, upsampled_captions):
         "Category": list(dataset["Category"][:n_captions]),
     }
 
+    print(f"Uploading {n_captions} prompts to the Hub...")
     dataset_hf = Dataset.from_dict(data_dict)
     dataset_hf.to_csv("upsampled_prompts_parti.csv")
     dataset_hf.push_to_hub("roborovski/upsampled-prompts-parti")
@@ -145,38 +146,39 @@ def main(local: bool = False):
     # initial test upload before loading the pipeline
     upload_dataset(dataset, upsampled_captions)
 
+    n_epochs = 100
+
     pipeline = None
     if local:
         print("Loading local pipeline...")
         pipeline = load_chat_pipeline()
 
     print("Upsampling captions...")
-    for i, row in enumerate(dataset.itertuples()):
-        prompt, category = row.Prompt, row.Category
-        system_message, rest_of_the_message = get_messages_for_chat()
-        updated_prompt = rest_of_the_message[-1]["content"].format(prompt=prompt)
-        rest_of_the_message[-1]["content"] = updated_prompt
-        final_message = make_final_message(
-            system_message, rest_of_the_message, debug=False
-        )
+    for epoch in range(n_epochs):
+        for i, row in enumerate(dataset.itertuples()):
+            prompt, category = row.Prompt, row.Category
+            system_message, rest_of_the_message = get_messages_for_chat()
+            updated_prompt = rest_of_the_message[-1]["content"].format(prompt=prompt)
+            rest_of_the_message[-1]["content"] = updated_prompt
+            final_message = make_final_message(
+                system_message, rest_of_the_message, debug=False
+            )
 
-        if local:
-            outputs = upsample_caption_local(pipeline, final_message)
-        else:
-            outputs = upsample_caption_oai(final_message)
+            if local:
+                outputs = upsample_caption_local(pipeline, final_message)
+            else:
+                outputs = upsample_caption_oai(final_message)
 
-        upsampled_caption = prepare_assistant_reply(outputs)
-        upsampled_captions.append(upsampled_caption)
+            upsampled_caption = prepare_assistant_reply(outputs)
+            upsampled_captions.append(upsampled_caption)
 
-        print(f"Upsampled prompt {i} ({category}): {prompt} -> {upsampled_caption}")
+            print(f"Upsampled prompt {epoch} {i} ({category}): {prompt} -> {upsampled_caption}")
 
-        if i % 50 == 0:
-            print(f"Upsampled {i} prompts")
-            upload_dataset(dataset, upsampled_captions)
+            if i % 50 == 0:
+                print(f"Upsampled {i} prompts")
+                upload_dataset(dataset, upsampled_captions)
 
-    upload_dataset(dataset, upsampled_captions)
-
-    print("Upsampling done, pushing to the Hub...")
+        upload_dataset(dataset, upsampled_captions)
 
 
 if __name__ == "__main__":
