@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 import torch
-from datasets import Dataset, load_dataset
+from datasets import Dataset, load_dataset, concatenate_datasets
 from transformers import pipeline, Pipeline
 import fire
 from huggingface_hub import login, whoami
@@ -116,24 +116,33 @@ def prepare_assistant_reply(assistant_output):
     return assistant_reply
 
 
-def upload_dataset(prompts: List[str], categories: List[str], upsampled_captions: List[str]):
-    n_captions = len(upsampled_captions)
-    data_dict = {
-        "Prompt": prompts,
-        "Category": categories,
-        "Upsampled": upsampled_captions,
-    }
+def upload_dataset(hf_dataset: Dataset, hf_dataset_name: str, new_dataset_rows: List[Dict]):
 
-    print(f"Uploading {n_captions} prompts to the Hub...")
-    dataset_hf = Dataset.from_dict(data_dict)
-    dataset_hf.to_csv("upsampled_prompts_parti.csv")
-    dataset_hf.push_to_hub("roborovski/upsampled-prompts-parti")
+    dataset_new_rows = Dataset.from_list(new_dataset_rows)
+    dataset_new_rows.to_csv("upsampled_new_prompts.csv")
+
+    concat_dataset = concatenate_datasets([hf_dataset, dataset_new_rows])
+
+    print(f"Uploading {len(new_dataset_rows)} new prompts to the Hub...")
+    concat_dataset.push_to_hub(hf_dataset_name)
 
 
 def main(local: bool = False):
-    print("Loading dataset and pipeline...")
-    dataset = pd.read_csv("PartiPrompts.tsv", sep="\t")
-    prompts, categories, upsampled_captions = [], [], []
+
+    if not local:
+        raise NotImplementedError("Only local mode is supported for now.")
+
+    hf_dataset_name = "roborovski/upsampled-prompts-parti"
+
+    print("Loading existing prompts...")
+    hf_dataset: Dataset = load_dataset(hf_dataset_name, split="train") # type: ignore
+
+    print("Loading new prompts...")
+    parti_prompts: pd.DataFrame = pd.read_csv("PartiPrompts.tsv", sep="\t")
+
+    source_prompts_list = parti_prompts
+
+    new_dataset_rows: List[Dict] = []
 
     print("Logging into the Hub...")
     file_dir = os.path.dirname(os.path.abspath(__file__))
@@ -143,7 +152,7 @@ def main(local: bool = False):
     login(token=token, add_to_git_credential=True)
 
     # initial test upload before loading the pipeline
-    upload_dataset(prompts, categories, upsampled_captions)
+    upload_dataset(hf_dataset, hf_dataset_name, new_dataset_rows)
 
     n_epochs = 100
 
@@ -154,10 +163,8 @@ def main(local: bool = False):
 
     print("Upsampling captions...")
     for epoch in range(n_epochs):
-        for i, row in enumerate(dataset.itertuples()):
+        for i, row in enumerate(source_prompts_list.itertuples()):
             prompt, category = row.Prompt, row.Category
-            prompts.append(prompt)
-            categories.append(category)
             system_message, rest_of_the_message = get_messages_for_chat()
             updated_prompt = rest_of_the_message[-1]["content"].format(prompt=prompt)
             rest_of_the_message[-1]["content"] = updated_prompt
@@ -171,15 +178,15 @@ def main(local: bool = False):
                 outputs = upsample_caption_oai(final_message)
 
             upsampled_caption = prepare_assistant_reply(outputs)
-            upsampled_captions.append(upsampled_caption)
+            new_dataset_rows.append({"Prompt": prompt, "Category": category, "Upsampled": upsampled_caption})
 
             print(f"Upsampled prompt {epoch} {i} ({category}): {prompt} -> {upsampled_caption}")
 
-            if i % 250 == 0:
+            if i % 500 == 0:
                 print(f"Upsampled {i} prompts")
-                upload_dataset(prompts, categories, upsampled_captions)
+                upload_dataset(hf_dataset, hf_dataset_name, new_dataset_rows)
 
-        upload_dataset(prompts, categories, upsampled_captions)
+        upload_dataset(hf_dataset, hf_dataset_name, new_dataset_rows)
 
 
 if __name__ == "__main__":
