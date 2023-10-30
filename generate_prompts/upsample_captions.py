@@ -10,7 +10,6 @@ import fire
 from huggingface_hub import login, whoami
 from dotenv import load_dotenv
 
-
 def load_chat_pipeline():
     """Loads the HuggingFaceH4/zephyr-7b-alpha model and wraps into a handy text-generation pipeline."""
     pipe = pipeline(
@@ -89,9 +88,9 @@ def make_final_message(
     return final_message
 
 
-def upsample_caption_local(pipeline, message: list[Dict[str, str]]):
+def upsample_caption_local(pipeline : Pipeline, message: list[Dict[str, str]]):
     """Performs inference on a single prompt."""
-    prompt = pipeline.tokenizer.apply_chat_template(
+    prompt = pipeline.tokenizer.apply_chat_template( # type: ignore
         message, tokenize=False, add_generation_prompt=True
     )
     outputs = pipeline(
@@ -167,7 +166,7 @@ def main(local: bool = False):
             )
 
             if local:
-                outputs = upsample_caption_local(pipeline, final_message)
+                outputs = upsample_caption_local(pipeline, final_message) # type: ignore
             else:
                 outputs = upsample_caption_oai(final_message)
 
@@ -176,7 +175,7 @@ def main(local: bool = False):
 
             print(f"Upsampled prompt {epoch} {i} ({category}): {prompt} -> {upsampled_caption}")
 
-            if i % 50 == 0:
+            if i % 250 == 0:
                 print(f"Upsampled {i} prompts")
                 upload_dataset(prompts, categories, upsampled_captions)
 
