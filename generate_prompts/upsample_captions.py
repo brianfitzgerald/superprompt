@@ -8,7 +8,8 @@ from transformers import pipeline, Pipeline
 import fire
 from huggingface_hub import login
 from dotenv import load_dotenv
-from vllm import LLM, SamplingParams
+from vllm import LLM, SamplingParams, RequestOutput
+
 
 def load_chat_pipeline_hf():
     """Loads the HuggingFaceH4/zephyr-7b-alpha model and wraps into a handy text-generation pipeline."""
@@ -67,8 +68,7 @@ def get_messages_for_chat() -> Tuple[Dict, List[Dict]]:
     return system_message, user_conversation
 
 
-
-def upsample_caption_hf(pipeline : Pipeline, message: list[Dict[str, str]]):
+def upsample_caption_hf(pipeline: Pipeline, message: list[Dict[str, str]]):
     """Performs inference on a single prompt."""
     outputs = pipeline(
         message,
@@ -80,16 +80,10 @@ def upsample_caption_hf(pipeline : Pipeline, message: list[Dict[str, str]]):
     )
     return outputs
 
-def prepare_assistant_reply(assistant_output):
-    """Prepares the assistant reply which will be considered as the upsampled caption."""
-    output = assistant_output[0]["generated_text"]
-    parts = output.rsplit("<|assistant|>", 1)
-    assistant_reply = parts[1].strip() if len(parts) > 1 else None
-    return assistant_reply
 
-
-def upload_dataset(hf_dataset: Dataset, hf_dataset_name: str, new_dataset_rows: List[Dict]):
-
+def upload_dataset(
+    hf_dataset: Dataset, hf_dataset_name: str, new_dataset_rows: List[Dict]
+):
     dataset_new_rows = Dataset.from_list(new_dataset_rows)
     dataset_new_rows.to_csv("upsampled_new_prompts.csv")
 
@@ -100,11 +94,10 @@ def upload_dataset(hf_dataset: Dataset, hf_dataset_name: str, new_dataset_rows: 
 
 
 def main():
-
     hf_dataset_name = "roborovski/upsampled-prompts-parti"
 
     print("Loading existing prompts...")
-    hf_dataset: Dataset = load_dataset(hf_dataset_name, split="train") # type: ignore
+    hf_dataset: Dataset = load_dataset(hf_dataset_name, split="train")  # type: ignore
 
     print("Loading new prompts...")
     parti_prompts: pd.DataFrame = pd.read_csv("PartiPrompts.tsv", sep="\t")
@@ -125,9 +118,9 @@ def main():
 
     n_epochs = 100
 
-    sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
+    sampling_params = SamplingParams(temperature=0.7, top_p=0.95, max_tokens=256)
     print("Loading local pipeline...")
-    model = LLM(model="TheBloke/zephyr-7B-beta-AWQ", quantization="awq", dtype="auto")
+    model = LLM(model="HuggingFaceH4/zephyr-7b-beta", dtype="auto")
     print("Pipeline loaded.")
 
     tokenizer = model.get_tokenizer()
@@ -135,23 +128,32 @@ def main():
     print("Upsampling captions...")
     for epoch in range(n_epochs):
         for i, row in enumerate(source_prompts_list.itertuples()):
-            prompt, category = row.Prompt, row.Category
+            original_prompt, category = row.Prompt, row.Category
             system_message, user_conversation = get_messages_for_chat()
-            updated_prompt = user_conversation[-1]["content"].format(prompt=prompt)
+            updated_prompt = user_conversation[-1]["content"].format(
+                prompt=original_prompt
+            )
             user_conversation[-1]["content"] = updated_prompt
 
             final_message = [system_message, *user_conversation]
-            prompt: str = tokenizer.apply_chat_template( # type: ignore
+            full_conversation_formatted: str = tokenizer.apply_chat_template(  # type: ignore
                 final_message, tokenize=False, add_generation_prompt=True
             )
 
-            breakpoint()
-            outputs = model.generate(prompt, sampling_params)
+            outputs = model.generate(full_conversation_formatted, sampling_params)
 
-            upsampled_caption = prepare_assistant_reply(outputs)
-            new_dataset_rows.append({"Prompt": prompt, "Category": category, "Upsampled": upsampled_caption})
+            upsampled_caption = outputs[0].outputs[0].text
+            new_dataset_rows.append(
+                {
+                    "Prompt": original_prompt,
+                    "Category": category,
+                    "Upsampled": upsampled_caption,
+                }
+            )
 
-            print(f"Upsampled prompt {epoch} {i} ({category}): {prompt} -> {upsampled_caption}")
+            print(
+                f"Upsampled prompt {epoch} {i} ({category}): {original_prompt} -> {upsampled_caption}"
+            )
 
             if i % 500 == 0:
                 print(f"Upsampled {i} prompts")
