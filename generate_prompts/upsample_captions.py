@@ -1,5 +1,4 @@
 import os
-from pprint import pprint
 from typing import Dict, List, Tuple
 
 import pandas as pd
@@ -7,10 +6,11 @@ import torch
 from datasets import Dataset, load_dataset, concatenate_datasets
 from transformers import pipeline, Pipeline
 import fire
-from huggingface_hub import login, whoami
+from huggingface_hub import login
 from dotenv import load_dotenv
+from vllm import LLM, SamplingParams
 
-def load_chat_pipeline():
+def load_chat_pipeline_hf():
     """Loads the HuggingFaceH4/zephyr-7b-alpha model and wraps into a handy text-generation pipeline."""
     pipe = pipeline(
         "text-generation",
@@ -42,15 +42,7 @@ def get_messages_for_chat() -> Tuple[Dict, List[Dict]]:
     """,
     }
 
-    rest_of_the_message = [
-        {
-            "role": "user",
-            "content": "Create an imaginative image descriptive caption or modify an earlier caption for the user input: 'a man holding a sword'",
-        },
-        {
-            "role": "assistant",
-            "content": "a pale figure with long white hair stands in the center of a dark forest, holding a sword high above his head. the blade glows with a blue light , casting a soft glow on the trees and bushes surrounding him.",
-        },
+    user_conversation = [
         {
             "role": "user",
             "content": "Create an imaginative image descriptive caption or modify an earlier caption for the user input : 'make the light red'",
@@ -72,29 +64,14 @@ def get_messages_for_chat() -> Tuple[Dict, List[Dict]]:
             "content": "Create an imaginative image descriptive caption or modify an earlier caption for the user input : '{prompt}'",
         },
     ]
-    return system_message, rest_of_the_message
+    return system_message, user_conversation
 
 
-def make_final_message(
-    system_message: Dict[str, str],
-    rest_of_the_message: List[Dict[str, str]],
-    debug=False,
-):
-    """Prepares the final message for inference."""
-    final_message = [system_message]
-    final_message.extend(rest_of_the_message)
-    if debug:
-        pprint(final_message)
-    return final_message
 
-
-def upsample_caption_local(pipeline : Pipeline, message: list[Dict[str, str]]):
+def upsample_caption_hf(pipeline : Pipeline, message: list[Dict[str, str]]):
     """Performs inference on a single prompt."""
-    prompt = pipeline.tokenizer.apply_chat_template( # type: ignore
-        message, tokenize=False, add_generation_prompt=True
-    )
     outputs = pipeline(
-        prompt,
+        message,
         max_new_tokens=256,
         do_sample=True,
         temperature=0.7,
@@ -102,11 +79,6 @@ def upsample_caption_local(pipeline : Pipeline, message: list[Dict[str, str]]):
         top_p=0.95,
     )
     return outputs
-
-
-def upsample_caption_oai(message: list[Dict[str, str]]):
-    pass
-
 
 def prepare_assistant_reply(assistant_output):
     """Prepares the assistant reply which will be considered as the upsampled caption."""
@@ -127,10 +99,7 @@ def upload_dataset(hf_dataset: Dataset, hf_dataset_name: str, new_dataset_rows: 
     concat_dataset.push_to_hub(hf_dataset_name)
 
 
-def main(local: bool = False):
-
-    if not local:
-        raise NotImplementedError("Only local mode is supported for now.")
+def main():
 
     hf_dataset_name = "roborovski/upsampled-prompts-parti"
 
@@ -156,26 +125,28 @@ def main(local: bool = False):
 
     n_epochs = 100
 
-    pipeline = None
-    if local:
-        print("Loading local pipeline...")
-        pipeline = load_chat_pipeline()
+    sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
+    print("Loading local pipeline...")
+    model = LLM(model="TheBloke/zephyr-7B-beta-AWQ", quantization="awq", dtype="auto")
+    print("Pipeline loaded.")
+
+    tokenizer = model.get_tokenizer()
 
     print("Upsampling captions...")
     for epoch in range(n_epochs):
         for i, row in enumerate(source_prompts_list.itertuples()):
             prompt, category = row.Prompt, row.Category
-            system_message, rest_of_the_message = get_messages_for_chat()
-            updated_prompt = rest_of_the_message[-1]["content"].format(prompt=prompt)
-            rest_of_the_message[-1]["content"] = updated_prompt
-            final_message = make_final_message(
-                system_message, rest_of_the_message, debug=False
+            system_message, user_conversation = get_messages_for_chat()
+            updated_prompt = user_conversation[-1]["content"].format(prompt=prompt)
+            user_conversation[-1]["content"] = updated_prompt
+
+            final_message = [system_message, *user_conversation]
+            prompt: str = tokenizer.apply_chat_template( # type: ignore
+                final_message, tokenize=False, add_generation_prompt=True
             )
 
-            if local:
-                outputs = upsample_caption_local(pipeline, final_message) # type: ignore
-            else:
-                outputs = upsample_caption_oai(final_message)
+            breakpoint()
+            outputs = model.generate(prompt, sampling_params)
 
             upsampled_caption = prepare_assistant_reply(outputs)
             new_dataset_rows.append({"Prompt": prompt, "Category": category, "Upsampled": upsampled_caption})
