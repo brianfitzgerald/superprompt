@@ -33,14 +33,17 @@ def calculate_loss(
     batch,
     text_encoder: CLIPTextModel,
     tokenizer: CLIPTokenizer,
-    device
+    device,
 ):
+    input_tokenized = tokenizer(
+        batch["Prompt"], truncation=True, padding=True, return_tensors="pt"
+    ).to(device)
+    input_encoded = text_encoder(**input_tokenized).pooler_output
 
-    input_tokenized = tokenizer(batch["Prompt"], truncation=True, padding=True, return_tensors="pt").to(device)
-    input_encoded = text_encoder(**input_tokenized)
-
-    label_tokenized = tokenizer(batch["Upsampled"], truncation=True, padding=True, return_tensors="pt").to(device)
-    label_encoded = text_encoder(**label_tokenized)
+    label_tokenized = tokenizer(
+        batch["Upsampled"], truncation=True, padding=True, return_tensors="pt"
+    ).to(device)
+    label_encoded = text_encoder(**label_tokenized).pooler_output
 
     out = model(input_encoded)
     loss = F.mse_loss(out, label_encoded)
@@ -160,7 +163,9 @@ def train(
                 model.eval()
                 for batch in test_dataloader:
                     with torch.inference_mode():
-                        loss = calculate_loss(model, batch, text_encoder, tokenizer, device)
+                        loss = calculate_loss(
+                            model, batch, text_encoder, tokenizer, device
+                        )
                     test_batches += 1
                     if test_batches >= test_batches:
                         break
