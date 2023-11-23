@@ -15,6 +15,7 @@ import bitsandbytes as bnb
 import wandb
 from utils import get_model_gradient_norm
 from torch.amp.autocast_mode import autocast
+from transformers import CLIPTextModel, AutoTokenizer, CLIPTokenizer
 
 size = 512
 to_tensor = transforms.ToTensor()
@@ -27,30 +28,27 @@ image_transforms = transforms.Compose(
 )
 
 
-def collate_fn(batch):
-    processed_batch = {}
-    for label in ("img_better", "img_worse"):
-        imgs = [sample[label] for sample in batch]
-        imgs = [image_transforms(img) for img in imgs]
-        img_tensors = torch.stack(imgs)
-        processed_batch[label] = img_tensors
-
-    return processed_batch
-
-
 def calculate_loss(
     model: LinearEmbAug,
     batch,
+    text_encoder: CLIPTextModel,
+    tokenizer: CLIPTokenizer,
+    device
 ):
-    prompt_input = batch["Prompt"]
-    prompt_target = batch["Upsampled"]
-    loss = F.mse_loss(resized, latent_target)
-    logs = {"mse_latent": mse_latent.cpu().item()}
-    return loss, logs
+
+    input_tokenized = tokenizer(batch["Prompt"], truncation=True, padding=True, return_tensors="pt").to(device)
+    input_encoded = text_encoder(**input_tokenized)
+
+    label_tokenized = tokenizer(batch["Upsampled"], truncation=True, padding=True, return_tensors="pt").to(device)
+    label_encoded = text_encoder(**label_tokenized)
+
+    out = model(input_encoded)
+    loss = F.mse_loss(out, label_encoded)
+    return loss
 
 
 def train(
-    vae_path: str = "runwayml/stable-diffusion-v1-5",
+    pretrained_model: str = "runwayml/stable-diffusion-v1-5",
     objective: str = "upscale",
     test_steps: int = 1000,
     test_batches: int = 10,
@@ -60,7 +58,6 @@ def train(
     batch_size: int = 2,
     num_dataloader_workers: int = 0,
     lr: float = 2e-4,
-    dropout: float = 0.0,
     clip_grad_val: float = 50.0,
     use_bnb: bool = True,
     use_wandb: bool = False,
@@ -68,26 +65,27 @@ def train(
     device = torch.device("cuda")
     steps = int(steps)
 
+    text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14")
+    text_encoder.to(device)  # type: ignore
+    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+
     dataset = load_dataset(
-        "roborovski/upsampled-prompts-parti", "train", verification_mode="no_checks"
+        "roborovski/upsampled-prompts-parti", verification_mode="no_checks"
     )
-    dataset = dataset.train_test_split(test_size=0.05)  # type: ignore
+    dataset = dataset["train"].train_test_split(test_size=0.05)  # type: ignore
     train_dataset: Dataset = dataset["train"]
     test_dataset: Dataset = dataset["test"]
 
     train_dataloader = DataLoader(
-        train_dataset, # type: ignore
+        train_dataset,  # type: ignore
         batch_size=batch_size,
-        collate_fn=collate_fn,
         num_workers=num_dataloader_workers,
     )
     test_dataloader = DataLoader(
-        test_dataset, # type: ignore
+        test_dataset,  # type: ignore
         batch_size=batch_size,
-        collate_fn=collate_fn,
         num_workers=num_dataloader_workers,
     )
-
 
     model = LinearEmbAug().to(device)
 
@@ -104,7 +102,7 @@ def train(
         optimizer = bnb.optim.Adam8bit(model.parameters(), lr=lr)
     else:
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-    scaler = torch.cuda.amp.GradScaler(enabled=True) # type: ignore
+    scaler = torch.cuda.amp.GradScaler(enabled=True)  # type: ignore
     linear_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=0.001, total_iters=200
     )
@@ -126,17 +124,14 @@ def train(
 
             # get loss
             with autocast(device_type="cuda", dtype=torch.float16):
-                loss, logs = calculate_loss(
-                    model,
-                    batch,
-                )
+                loss = calculate_loss(model, batch, text_encoder, tokenizer, device)
                 loss_rounded = round(loss.cpu().item(), 2)
 
-            scaler.scale(loss).backward() # type: ignore
+            scaler.scale(loss).backward()  # type: ignore
             scaler.unscale_(optimizer)
 
             if clip_grad_val > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), clip_grad_val) # type: ignore
+                nn.utils.clip_grad_norm_(model.parameters(), clip_grad_val)  # type: ignore
 
             norm_text, lr_text = (
                 round(get_model_gradient_norm(model), 3),
@@ -145,7 +140,7 @@ def train(
             progress_bar.set_postfix(loss=loss_rounded, lr=lr_text, norm=norm_text)
 
             if use_wandb:
-                wandb.log({**logs, "lr": lr_text, "norm": norm_text})
+                wandb.log({"lr": lr_text, "norm": norm_text})
 
             scaler.step(optimizer)
             scaler.update()
@@ -162,17 +157,11 @@ def train(
                 torch.save(model.state_dict(), save_filename)
             if step % test_steps == 0:
                 test_batches = 0
-                test_logs = defaultdict(float)
                 model.eval()
                 for batch in test_dataloader:
                     with torch.inference_mode():
-                        _, logs = calculate_loss(
-                            model,
-                            batch,
-                        )
+                        loss = calculate_loss(model, batch, text_encoder, tokenizer, device)
                     test_batches += 1
-                    for k in logs.keys():
-                        test_logs[k] += logs[k]
                     if test_batches >= test_batches:
                         break
                 model.train()
