@@ -46,7 +46,7 @@ def calculate_loss(
     label_encoded = text_encoder(**label_tokenized).pooler_output
 
     out = model(input_encoded)
-    loss = F.mse_loss(out, label_encoded)
+    loss = F.cosine_embedding_loss(out, label_encoded)
     return loss
 
 
@@ -143,7 +143,7 @@ def train(
             progress_bar.set_postfix(loss=loss_rounded, lr=lr_text, norm=norm_text)
 
             if use_wandb:
-                wandb.log({"lr": lr_text, "norm": norm_text})
+                wandb.log({"lr": lr_text, "norm": norm_text, "loss": loss})
 
             scaler.step(optimizer)
             scaler.update()

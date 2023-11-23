@@ -31,4 +31,5 @@ class LinearEmbAug(nn.Module):
         if self.training:
             x = self.dropout(x)
         x = self.embed_fc(x)
+        x = self.bn(x)
         return x
