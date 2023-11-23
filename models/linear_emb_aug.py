@@ -5,7 +5,7 @@ from typing import List
 import torch.nn.functional as F
 
 
-class EmbAugLinear(nn.Module):
+class LinearEmbAug(nn.Module):
     def __init__(
         self,
         n_tokens: int = 77,
@@ -34,18 +34,3 @@ class EmbAugLinear(nn.Module):
         x = self.embed_fc(x)
         x = x.reshape(x.shape[0], self.n_tokens, self.context_dim)
         return x
-
-    def grad_norm_sum(self):
-        grads = [
-            param.grad.detach().flatten()
-            for param in self.parameters()
-            if param.grad is not None and param.requires_grad
-        ]
-        total_norm = torch.cat(grads).norm()
-        return total_norm.item()
-
-    def weights_biases_sum(self):
-        total_weight_sum = 0.0
-        for param in self.parameters():
-            total_weight_sum += param.data.sum().item()
-        return total_weight_sum

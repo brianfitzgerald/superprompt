@@ -3,18 +3,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
 from diffusers import AutoencoderKL
-import argparse
 import os
-import random
-import webdataset as wds
-import io
 from tqdm.auto import tqdm
 from models.latent_aug import LatentAugmenter
 import lpips
 from collections import defaultdict
-from PIL import Image, UnidentifiedImageError
 from torchvision import transforms
 import fire
 from typing import List
