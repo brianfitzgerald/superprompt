@@ -46,31 +46,30 @@ def calculate_loss(
     label_encoded = text_encoder(**label_tokenized).pooler_output
 
     out = model(input_encoded)
-    loss = F.cosine_embedding_loss(out, label_encoded)
+    loss = F.mse_loss(out, label_encoded)
     return loss
 
 
 def train(
-    pretrained_model: str = "runwayml/stable-diffusion-v1-5",
-    objective: str = "upscale",
     test_steps: int = 1000,
     test_batches: int = 10,
-    output_filename: str = "sdxl_resizer.pt",
+    output_filename: str = "linear_emb_aug.pt",
     steps: float = 1e4,
     save_steps: int = 5000,
-    batch_size: int = 2,
+    batch_size: int = 8,
     num_dataloader_workers: int = 0,
-    lr: float = 2e-4,
-    clip_grad_val: float = 50.0,
+    n_epochs: int = 5,
+    lr: float = 1e-4,
+    clip_grad_val: float = 0,
     use_bnb: bool = True,
     use_wandb: bool = False,
 ):
     device = torch.device("cuda")
     steps = int(steps)
 
-    text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14")
+    text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
     text_encoder.to(device)  # type: ignore
-    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+    tokenizer: CLIPTokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14") # type: ignore
 
     dataset = load_dataset(
         "roborovski/upsampled-prompts-parti", verification_mode="no_checks"
@@ -120,8 +119,7 @@ def train(
     progress_bar = tqdm(range(steps))
     progress_bar.set_description("Steps")
 
-    while step < steps:
-        epoch += 1
+    while epoch < n_epochs:
         for batch in train_dataloader:
             step += 1
 
@@ -140,7 +138,7 @@ def train(
                 round(get_model_gradient_norm(model), 3),
                 scheduler.get_last_lr()[0],
             )
-            progress_bar.set_postfix(loss=loss_rounded, lr=lr_text, norm=norm_text)
+            progress_bar.set_postfix(loss=loss_rounded, lr=lr_text, norm=norm_text, epoch=epoch)
 
             if use_wandb:
                 wandb.log({"lr": lr_text, "norm": norm_text, "loss": loss})
@@ -170,6 +168,7 @@ def train(
                     if test_batches >= test_batches:
                         break
                 model.train()
+        epoch += 1
 
     wandb.finish()
     torch.save(model.state_dict(), output_filename)

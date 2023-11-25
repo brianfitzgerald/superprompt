@@ -25,11 +25,11 @@ class LinearEmbAug(nn.Module):
             fc_layers.append(torch.nn.ReLU())
         fc_layers.append(torch.nn.Linear(layers[-1], context_dim))
         self.embed_fc = torch.nn.Sequential(*fc_layers).to(device)
-        self.bn = nn.BatchNorm1d(context_dim).to(device)
+        self.norm = nn.LayerNorm(context_dim).to(device)
 
     def forward(self, x):
         if self.training:
             x = self.dropout(x)
         x = self.embed_fc(x)
-        x = self.bn(x)
+        x = self.norm(x)
         return x
